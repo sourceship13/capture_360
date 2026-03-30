@@ -1,179 +1,269 @@
 /**
- * Bisetka Photosphere — React Native Turbo Module Example
- * Demonstrates every TurboModule pattern: constants, sync methods,
- * async/promise methods, callbacks, and native event emitting.
- *
+ * Bisetka Photosphere — Full-screen Camera with Capture
  * @format
  */
 
-import React, {useCallback, useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
-  NativeEventEmitter,
-  Platform,
-  ScrollView,
+  ActivityIndicator,
+  Alert,
+  Image,
   StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
-  useColorScheme,
   View,
 } from 'react-native';
+import {
+  Camera,
+  useCameraDevice,
+  useCameraDevices,
+  useCameraPermission,
+  PhotoFile,
+} from 'react-native-vision-camera';
 import {SafeAreaProvider, useSafeAreaInsets} from 'react-native-safe-area-context';
-import NativeDeviceInfo from './tm_specs/NativeDeviceInfo';
+import {useDeviceOrientation} from './src/hooks/useDeviceOrientation';
 
-// ─── Constants (available synchronously at import time) ───
-const constants = NativeDeviceInfo.getConstants();
 
 function App() {
-  const isDarkMode = useColorScheme() === 'dark';
   return (
     <SafeAreaProvider>
-      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
-      <AppContent isDarkMode={isDarkMode} />
+      <StatusBar
+        barStyle="light-content"
+        translucent
+        backgroundColor="transparent"
+      />
+      <CameraScreen />
     </SafeAreaProvider>
   );
 }
 
-function AppContent({isDarkMode}: {isDarkMode: boolean}) {
+function CameraScreen() {
   const insets = useSafeAreaInsets();
-  const bg = isDarkMode ? '#1a1a2e' : '#f0f4f8';
-  const fg = isDarkMode ? '#e0e0e0' : '#1a1a2e';
-  const cardBg = isDarkMode ? '#16213e' : '#ffffff';
+  const cameraRef = useRef<Camera>(null);
+  const {hasPermission, requestPermission} = useCameraPermission();
+  const devices = useCameraDevices();
+  const device = useCameraDevice('back');
 
-  // ─── State for each example ───
-  const [deviceName, setDeviceName] = useState<string>('—');
-  const [batteryLevel, setBatteryLevel] = useState<string>('—');
-  const [multiplyResult, setMultiplyResult] = useState<string>('—');
-  const [locale, setLocale] = useState<string>('—');
-  const [nativeEvent, setNativeEvent] = useState<string>('Waiting for events…');
+  const [photo, setPhoto] = useState<PhotoFile | null>(null);
+  const [capturing, setCapturing] = useState(false);
 
-  // ─── 1. Sync method ───
-  const handleGetDeviceName = useCallback(() => {
-    const name = NativeDeviceInfo.getDeviceName();
-    setDeviceName(name);
-  }, []);
+  // Orientation hook — tracks device orientation from VisionCamera's sensor
+  // pipeline and lets us freeze it at the exact moment the shutter fires.
+  const {onOrientationChange, snapshotOrientation, capturedOrientation, resetOrientation} =
+    useDeviceOrientation();
 
-  // ─── 2. Async / Promise method ───
-  const handleGetBatteryLevel = useCallback(async () => {
-    try {
-      const level = await NativeDeviceInfo.getBatteryLevel();
-      setBatteryLevel(`${(level * 100).toFixed(1)}%`);
-    } catch (e: any) {
-      setBatteryLevel(`Error: ${e.message}`);
-    }
-  }, []);
-
-  // ─── 3. Promise with arguments ───
-  const handleMultiply = useCallback(async () => {
-    const result = await NativeDeviceInfo.multiply(6, 7);
-    setMultiplyResult(`6 × 7 = ${result}`);
-  }, []);
-
-  // ─── 4. Callback method ───
-  const handleGetLocale = useCallback(() => {
-    NativeDeviceInfo.getDeviceLocale((loc: string) => {
-      setLocale(loc);
-    });
-  }, []);
-
-  // ─── 5. NativeEventEmitter listener ───
+  // Request permission on mount
   useEffect(() => {
-    const emitter = new NativeEventEmitter(NativeDeviceInfo);
-    const sub = emitter.addListener('onDeviceEvent', (event) => {
-      setNativeEvent(JSON.stringify(event));
-    });
-    return () => sub.remove();
-  }, []);
+    if (!hasPermission) {
+      requestPermission();
+    }
+  }, [hasPermission, requestPermission]);
 
+  const handleCapture = useCallback(async () => {
+    if (!cameraRef.current || capturing) {
+      return;
+    }
+    setCapturing(true);
+    try {
+      // Snapshot orientation BEFORE the async photo call so it matches
+      // the physical position of the phone at the moment of capture.
+      snapshotOrientation();
+      const result = await cameraRef.current.takePhoto({flash: 'off'});
+      setPhoto(result);
+    } catch (e: any) {
+      Alert.alert('Capture Error', e.message);
+    } finally {
+      setCapturing(false);
+    }
+  }, [capturing, snapshotOrientation]);
+
+  const handleRetake = useCallback(() => {
+    setPhoto(null);
+    resetOrientation();
+  }, [resetOrientation]);
+
+  // ─── Permission not yet granted ───
+  if (!hasPermission) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.permissionText}>Camera permission required</Text>
+        <TouchableOpacity style={styles.permissionBtn} onPress={requestPermission}>
+          <Text style={styles.permissionBtnText}>Grant Permission</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // ─── No camera device available (e.g. Simulator) ───
+  if (!device) {
+    const noDevicesAtAll = devices.length === 0;
+    return (
+      <View style={styles.centered}>
+        {noDevicesAtAll ? (
+          <>
+            <Text style={styles.noCameraEmoji}>📷</Text>
+            <Text style={styles.permissionText}>No camera available</Text>
+            <Text style={styles.hintText}>
+              This device has no cameras. If you're running on the iOS Simulator,
+              cameras are not supported — please use a physical device.
+            </Text>
+          </>
+        ) : (
+          <>
+            <ActivityIndicator size="large" color="#fff" />
+            <Text style={styles.permissionText}>Loading camera…</Text>
+          </>
+        )}
+      </View>
+    );
+  }
+
+  // ─── Photo preview ───
+  if (photo) {
+    return (
+      <View style={styles.fill}>
+        <Image
+          source={{uri: `file://${photo.path}`}}
+          style={StyleSheet.absoluteFill}
+          resizeMode="cover"
+        />
+        {/* Top bar */}
+        <View style={[styles.topBar, {paddingTop: insets.top + 8}]}>
+          <Text style={styles.previewTitle}>Captured Photo</Text>
+        </View>
+        {/* Bottom bar */}
+        <View style={[styles.bottomBar, {paddingBottom: insets.bottom + 16}]}>
+          <TouchableOpacity style={styles.retakeBtn} onPress={handleRetake}>
+            <Text style={styles.retakeBtnText}>Retake</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  // ─── Live camera view ───
   return (
-    <ScrollView
-      style={[styles.container, {backgroundColor: bg}]}
-      contentContainerStyle={{paddingTop: insets.top + 16, paddingBottom: insets.bottom + 32, paddingHorizontal: 20}}>
-      <Text style={[styles.title, {color: fg}]}>🔧 TurboModule Examples</Text>
-      <Text style={[styles.subtitle, {color: fg}]}>React Native {Platform.constants.reactNativeVersion?.major}.{Platform.constants.reactNativeVersion?.minor}.{Platform.constants.reactNativeVersion?.patch}</Text>
-
-      {/* ─── Constants Card ─── */}
-      <View style={[styles.card, {backgroundColor: cardBg}]}>
-        <Text style={[styles.cardTitle, {color: fg}]}>📋 Constants (getConstants)</Text>
-        <Text style={[styles.mono, {color: fg}]}>platform: {constants.platform}</Text>
-        <Text style={[styles.mono, {color: fg}]}>appVersion: {constants.appVersion}</Text>
-        <Text style={[styles.mono, {color: fg}]}>buildNumber: {constants.buildNumber}</Text>
-      </View>
-
-      {/* ─── Sync Method Card ─── */}
-      <View style={[styles.card, {backgroundColor: cardBg}]}>
-        <Text style={[styles.cardTitle, {color: fg}]}>⚡ Sync Method (getDeviceName)</Text>
-        <Text style={[styles.mono, {color: fg}]}>{deviceName}</Text>
-        <TouchableOpacity style={styles.button} onPress={handleGetDeviceName}>
-          <Text style={styles.buttonText}>Call getDeviceName()</Text>
+    <View style={styles.fill}>
+      <Camera
+        ref={cameraRef}
+        style={StyleSheet.absoluteFill}
+        device={device}
+        isActive={true}
+        photo={true}
+        outputOrientation="preview"
+        onPreviewOrientationChanged={onOrientationChange}
+      />
+      {/* Capture button at bottom */}
+      <View style={[styles.bottomBar, {paddingBottom: insets.bottom + 16}]}>
+        <TouchableOpacity
+          style={styles.captureOuter}
+          onPress={handleCapture}
+          activeOpacity={0.7}
+          disabled={capturing}>
+          <View
+            style={[
+              styles.captureInner,
+              capturing && styles.captureInnerActive,
+            ]}
+          />
         </TouchableOpacity>
       </View>
-
-      {/* ─── Async Promise Card ─── */}
-      <View style={[styles.card, {backgroundColor: cardBg}]}>
-        <Text style={[styles.cardTitle, {color: fg}]}>🔋 Async Promise (getBatteryLevel)</Text>
-        <Text style={[styles.mono, {color: fg}]}>{batteryLevel}</Text>
-        <TouchableOpacity style={styles.button} onPress={handleGetBatteryLevel}>
-          <Text style={styles.buttonText}>Call getBatteryLevel()</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* ─── Promise with Args Card ─── */}
-      <View style={[styles.card, {backgroundColor: cardBg}]}>
-        <Text style={[styles.cardTitle, {color: fg}]}>🧮 Promise with Args (multiply)</Text>
-        <Text style={[styles.mono, {color: fg}]}>{multiplyResult}</Text>
-        <TouchableOpacity style={styles.button} onPress={handleMultiply}>
-          <Text style={styles.buttonText}>Call multiply(6, 7)</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* ─── Callback Card ─── */}
-      <View style={[styles.card, {backgroundColor: cardBg}]}>
-        <Text style={[styles.cardTitle, {color: fg}]}>📞 Callback (getDeviceLocale)</Text>
-        <Text style={[styles.mono, {color: fg}]}>{locale}</Text>
-        <TouchableOpacity style={styles.button} onPress={handleGetLocale}>
-          <Text style={styles.buttonText}>Call getDeviceLocale()</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* ─── Event Emitter Card ─── */}
-      <View style={[styles.card, {backgroundColor: cardBg}]}>
-        <Text style={[styles.cardTitle, {color: fg}]}>📡 NativeEventEmitter</Text>
-        <Text style={[styles.mono, {color: fg}]}>{nativeEvent}</Text>
-        <Text style={[styles.hint, {color: fg}]}>
-          Listening for "onDeviceEvent" from native side.
-          Trigger by calling sendEvent() from native code.
-        </Text>
-      </View>
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {flex: 1},
-  title: {fontSize: 28, fontWeight: '800', textAlign: 'center', marginBottom: 4},
-  subtitle: {fontSize: 14, textAlign: 'center', marginBottom: 24, opacity: 0.6},
-  card: {
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: {width: 0, height: 4},
-    elevation: 3,
+  fill: {
+    flex: 1,
+    backgroundColor: '#000',
   },
-  cardTitle: {fontSize: 16, fontWeight: '700', marginBottom: 12},
-  mono: {fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 13, marginBottom: 4},
-  button: {
-    backgroundColor: '#4f46e5',
-    borderRadius: 10,
-    paddingVertical: 12,
+  centered: {
+    flex: 1,
+    backgroundColor: '#000',
+    justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 12,
   },
-  buttonText: {color: '#fff', fontWeight: '600', fontSize: 14},
-  hint: {fontSize: 12, marginTop: 8, opacity: 0.5, fontStyle: 'italic'},
+  permissionText: {
+    color: '#fff',
+    fontSize: 18,
+    marginBottom: 20,
+  },
+  noCameraEmoji: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+  hintText: {
+    color: '#aaa',
+    fontSize: 14,
+    textAlign: 'center',
+    paddingHorizontal: 40,
+    lineHeight: 20,
+  },
+  permissionBtn: {
+    backgroundColor: '#4f46e5',
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  permissionBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  topBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    alignItems: 'center',
+  },
+  previewTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  bottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    paddingTop: 16,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  captureOuter: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 4,
+    borderColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  captureInner: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#fff',
+  },
+  captureInnerActive: {
+    backgroundColor: '#ccc',
+  },
+  retakeBtn: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 32,
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  retakeBtnText: {
+    color: '#000',
+    fontSize: 16,
+    fontWeight: '700',
+  },
 });
 
 export default App;
