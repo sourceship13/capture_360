@@ -30,6 +30,12 @@ export interface Spec extends TurboModule {
   // Adds a native event listener (used by EventEmitter pattern)
   addListener(eventName: string): void;
   removeListeners(count: number): void;
+
+  // --- Motion / Attitude tracking ---
+  // Start streaming device attitude (yaw/pitch/roll) at ~30Hz via "onAttitude" events
+  startAttitudeUpdates(): void;
+  // Stop streaming attitude updates
+  stopAttitudeUpdates(): void;
 }
 
 export default TurboModuleRegistry.getEnforcing<Spec>('NativeDeviceInfo');

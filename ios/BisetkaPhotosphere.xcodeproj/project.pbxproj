@@ -12,8 +12,25 @@
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		AA11BB0000000003 /* RCTNativeDeviceInfoModule.m in Sources */ = {isa = PBXBuildFile; fileRef = AA11BB0000000002 /* RCTNativeDeviceInfoModule.m */; };
+		DEBB2BD72F7B436F0062B357 /* opencv2.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DEBB2BD52F7B43410062B357 /* opencv2.framework */; };
+		DEBB2BD82F7B436F0062B357 /* opencv2.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = DEBB2BD52F7B43410062B357 /* opencv2.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		DEBB2BDC2F7B44020062B357 /* RCTPhotosphereModule.mm in Sources */ = {isa = PBXBuildFile; fileRef = DEBB2BDB2F7B44020062B357 /* RCTPhotosphereModule.mm */; };
 		E446A2F642EBAD990B99ADC9 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		DEBB2BD92F7B436F0062B357 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				DEBB2BD82F7B436F0062B357 /* opencv2.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		13B07F961A680F5B00A75B9A /* BisetkaPhotosphere.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BisetkaPhotosphere.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -28,6 +45,9 @@
 		AA11BB0000000001 /* RCTNativeDeviceInfoModule.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = RCTNativeDeviceInfoModule.h; path = BisetkaPhotosphere/RCTNativeDeviceInfoModule.h; sourceTree = "<group>"; };
 		AA11BB0000000002 /* RCTNativeDeviceInfoModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = RCTNativeDeviceInfoModule.m; path = BisetkaPhotosphere/RCTNativeDeviceInfoModule.m; sourceTree = "<group>"; };
 		AA11BB0000000004 /* BisetkaPhotosphere-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "BisetkaPhotosphere-Bridging-Header.h"; path = "BisetkaPhotosphere/BisetkaPhotosphere-Bridging-Header.h"; sourceTree = "<group>"; };
+		DEBB2BD52F7B43410062B357 /* opencv2.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = opencv2.framework; sourceTree = "<group>"; };
+		DEBB2BDA2F7B44020062B357 /* RCTPhotosphereModule.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RCTPhotosphereModule.h; sourceTree = "<group>"; };
+		DEBB2BDB2F7B44020062B357 /* RCTPhotosphereModule.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RCTPhotosphereModule.mm; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -36,6 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DEBB2BD72F7B436F0062B357 /* opencv2.framework in Frameworks */,
 				0C80B921A6F3F58F76C31292 /* libPods-BisetkaPhotosphere.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -46,6 +67,8 @@
 		13B07FAE1A68108700A75B9A /* BisetkaPhotosphere */ = {
 			isa = PBXGroup;
 			children = (
+				DEBB2BDA2F7B44020062B357 /* RCTPhotosphereModule.h */,
+				DEBB2BDB2F7B44020062B357 /* RCTPhotosphereModule.mm */,
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
@@ -77,6 +100,7 @@
 		83CBB9F61A601CBA00E9B192 = {
 			isa = PBXGroup;
 			children = (
+				DEBB2BD52F7B43410062B357 /* opencv2.framework */,
 				13B07FAE1A68108700A75B9A /* BisetkaPhotosphere */,
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
@@ -119,6 +143,7 @@
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				00EEFC60759A1932668264C0 /* [CP] Embed Pods Frameworks */,
 				E235C05ADACE081382539298 /* [CP] Copy Pods Resources */,
+				DEBB2BD92F7B436F0062B357 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -198,13 +223,9 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-BisetkaPhotosphere/Pods-BisetkaPhotosphere-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
-			inputPaths = (
-			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-BisetkaPhotosphere/Pods-BisetkaPhotosphere-frameworks-${CONFIGURATION}-output-files.xcfilelist",
-			);
-			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -241,13 +262,9 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-BisetkaPhotosphere/Pods-BisetkaPhotosphere-resources-${CONFIGURATION}-input-files.xcfilelist",
 			);
-			inputPaths = (
-			);
 			name = "[CP] Copy Pods Resources";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-BisetkaPhotosphere/Pods-BisetkaPhotosphere-resources-${CONFIGURATION}-output-files.xcfilelist",
-			);
-			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -262,6 +279,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
+				DEBB2BDC2F7B44020062B357 /* RCTPhotosphereModule.mm in Sources */,
 				AA11BB0000000003 /* RCTNativeDeviceInfoModule.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -278,6 +296,10 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = CM52HNMXXW;
 				ENABLE_BITCODE = NO;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)",
+				);
 				INFOPLIST_FILE = BisetkaPhotosphere/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -309,6 +331,10 @@
 				CLANG_ENABLE_MODULES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = CM52HNMXXW;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)",
+				);
 				INFOPLIST_FILE = BisetkaPhotosphere/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (

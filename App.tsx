@@ -1,17 +1,17 @@
 /**
- * Bisetka Photosphere — Full-screen Camera with Capture
+ * Bisetka Photosphere — Spherical 360° capture, stitch, & interactive viewer
  * @format
  */
 
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Image,
   StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import {
@@ -19,41 +19,159 @@ import {
   useCameraDevice,
   useCameraDevices,
   useCameraPermission,
-  PhotoFile,
 } from 'react-native-vision-camera';
 import {SafeAreaProvider, useSafeAreaInsets} from 'react-native-safe-area-context';
-import {useDeviceOrientation} from './src/hooks/useDeviceOrientation';
+import {NUM_SHOTS, usePhotosphere} from './src/hooks/usePhotosphere';
+import {useAttitude} from './src/hooks/useAttitude';
+import SphericalGuide, {
+  SPHERE_POSITIONS,
+  NUM_SPHERE_SHOTS,
+} from './src/components/SphericalGuide';
+import SphereViewer from './src/components/SphereViewer';
 
+// ─── Root ─────────────────────────────────────────────────────────────────────
 
-function App() {
+export default function App() {
   return (
     <SafeAreaProvider>
-      <StatusBar
-        barStyle="light-content"
-        translucent
-        backgroundColor="transparent"
-      />
-      <CameraScreen />
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      <PhotosphereRoot />
     </SafeAreaProvider>
   );
 }
 
-function CameraScreen() {
+function PhotosphereRoot() {
+  const {state, startCapture, addShot, removeShot, compose, reset} =
+    usePhotosphere();
+
+  if (state.status === 'capturing') {
+    return (
+      <CaptureScreen
+        shotMap={state.shotMap}
+        onAddShot={addShot}
+        onRemoveShot={removeShot}
+        onCompose={() => compose(state.shotMap)}
+        onCancel={reset}
+      />
+    );
+  }
+
+  if (state.status === 'composing') {
+    return <ComposingScreen />;
+  }
+
+  if (state.status === 'error') {
+    return (
+      <ErrorScreen
+        message={state.message}
+        onRetry={() => {
+          reset();
+          startCapture();
+        }}
+        onHome={reset}
+      />
+    );
+  }
+
+  if (state.status === 'done') {
+    return (
+      <ViewerScreen
+        imagePath={state.equirectPath}
+        onRetake={() => {
+          reset();
+          startCapture();
+        }}
+        onHome={reset}
+      />
+    );
+  }
+
+  // idle
+  return <HomeScreen onStart={startCapture} />;
+}
+
+// ─── Home Screen ──────────────────────────────────────────────────────────────
+
+function HomeScreen({onStart}: {onStart: () => void}) {
   const insets = useSafeAreaInsets();
+  return (
+    <View style={[styles.fill, styles.darkBg]}>
+      <View
+        style={[
+          styles.homeContent,
+          {paddingTop: insets.top + 48, paddingBottom: insets.bottom + 40},
+        ]}>
+        <Text style={styles.homeTitle}>BISETKA{'\n'}PHOTOSPHERE</Text>
+        <Text style={styles.homeSubtitle}>
+          Capture {NUM_SPHERE_SHOTS} photos covering every direction{'\n'}
+          to build an interactive 360° sphere.
+        </Text>
+
+        <View style={styles.homeFeatures}>
+          <Text style={styles.featureItem}>◉  Guided spherical capture grid</Text>
+          <Text style={styles.featureItem}>◉  OpenCV stitching engine</Text>
+          <Text style={styles.featureItem}>◉  Interactive 3D sphere viewer</Text>
+        </View>
+
+        <TouchableOpacity
+          style={styles.primaryBtn}
+          onPress={onStart}
+          activeOpacity={0.8}>
+          <Text style={styles.primaryBtnText}>Start Capturing</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+// ─── Capture Screen ───────────────────────────────────────────────────────────
+
+function CaptureScreen({
+  shotMap,
+  onAddShot,
+  onRemoveShot,
+  onCompose,
+  onCancel,
+}: {
+  shotMap: import('./src/hooks/usePhotosphere').ShotMap;
+  onAddShot: (positionId: number, path: string, yaw: number, pitch: number) => void;
+  onRemoveShot: (positionId: number) => void;
+  onCompose: () => void;
+  onCancel: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const {width: scrW, height: scrH} = useWindowDimensions();
   const cameraRef = useRef<Camera>(null);
   const {hasPermission, requestPermission} = useCameraPermission();
   const devices = useCameraDevices();
   const device = useCameraDevice('back');
+  const attitude = useAttitude(true);
 
-  const [photo, setPhoto] = useState<PhotoFile | null>(null);
-  const [capturing, setCapturing] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [isAligned, setIsAligned] = useState(false);
+  const [alignedPosId, setAlignedPosId] = useState<number | null>(null);
+  const shotCount = shotMap.size;
 
-  // Orientation hook — tracks device orientation from VisionCamera's sensor
-  // pipeline and lets us freeze it at the exact moment the shutter fires.
-  const {onOrientationChange, snapshotOrientation, capturedOrientation, resetOrientation} =
-    useDeviceOrientation();
+  // Compute the visible camera FOV accounting for portrait mode + cover crop.
+  // format.fieldOfView = sensor horizontal FOV in landscape.
+  // In portrait with cover mode:
+  //   visible HFOV = 2 * atan(tan(sensorHFOV/2) * screenW / screenH)
+  //   visible VFOV = sensorHFOV
+  const {hFov, vFov} = useMemo(() => {
+    // Use the best format's FOV (VisionCamera auto-selects highest-res format)
+    const fovs = device?.formats?.map(f => f.fieldOfView).filter(Boolean) ?? [];
+    const sensorHFov = fovs.length > 0 ? Math.max(...fovs) : 69; // fallback ~iPhone wide
+    const DEG = Math.PI / 180;
+    const visH =
+      (2 * Math.atan(Math.tan((sensorHFov / 2) * DEG) * (scrW / scrH))) / DEG;
+    return {hFov: visH, vFov: sensorHFov};
+  }, [device?.formats, scrW, scrH]);
 
-  // Request permission on mount
+  const capturedIds = React.useMemo(
+    () => new Set(shotMap.keys()),
+    [shotMap],
+  );
+
   useEffect(() => {
     if (!hasPermission) {
       requestPermission();
@@ -61,88 +179,58 @@ function CameraScreen() {
   }, [hasPermission, requestPermission]);
 
   const handleCapture = useCallback(async () => {
-    if (!cameraRef.current || capturing) {
+    if (!cameraRef.current || isCapturing || alignedPosId == null) {
       return;
     }
-    setCapturing(true);
+    setIsCapturing(true);
     try {
-      // Snapshot orientation BEFORE the async photo call so it matches
-      // the physical position of the phone at the moment of capture.
-      snapshotOrientation();
       const result = await cameraRef.current.takePhoto({flash: 'off'});
-      setPhoto(result);
+      const rawPath = result.path.startsWith('file://')
+        ? result.path.slice(7)
+        : result.path;
+      onAddShot(alignedPosId, rawPath, attitude.yaw, attitude.pitch);
     } catch (e: any) {
       Alert.alert('Capture Error', e.message);
     } finally {
-      setCapturing(false);
+      setIsCapturing(false);
     }
-  }, [capturing, snapshotOrientation]);
+  }, [isCapturing, alignedPosId, attitude.yaw, attitude.pitch, onAddShot]);
 
-  const handleRetake = useCallback(() => {
-    setPhoto(null);
-    resetOrientation();
-  }, [resetOrientation]);
+  const handleAligned = useCallback((aligned: boolean, positionId: number | null) => {
+    setIsAligned(aligned);
+    setAlignedPosId(positionId);
+  }, []);
 
-  // ─── Permission not yet granted ───
   if (!hasPermission) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.permissionText}>Camera permission required</Text>
-        <TouchableOpacity style={styles.permissionBtn} onPress={requestPermission}>
-          <Text style={styles.permissionBtnText}>Grant Permission</Text>
+      <View style={[styles.fill, styles.darkBg, styles.centered]}>
+        <Text style={styles.bodyText}>Camera permission is required.</Text>
+        <TouchableOpacity style={styles.primaryBtn} onPress={requestPermission}>
+          <Text style={styles.primaryBtnText}>Grant Permission</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
-  // ─── No camera device available (e.g. Simulator) ───
   if (!device) {
-    const noDevicesAtAll = devices.length === 0;
     return (
-      <View style={styles.centered}>
-        {noDevicesAtAll ? (
+      <View style={[styles.fill, styles.darkBg, styles.centered]}>
+        {devices.length === 0 ? (
           <>
             <Text style={styles.noCameraEmoji}>📷</Text>
-            <Text style={styles.permissionText}>No camera available</Text>
+            <Text style={styles.bodyText}>No camera available</Text>
             <Text style={styles.hintText}>
-              This device has no cameras. If you're running on the iOS Simulator,
-              cameras are not supported — please use a physical device.
+              Use a physical device — cameras are not supported on the iOS
+              Simulator.
             </Text>
           </>
         ) : (
-          <>
-            <ActivityIndicator size="large" color="#fff" />
-            <Text style={styles.permissionText}>Loading camera…</Text>
-          </>
+          <ActivityIndicator size="large" color="#fff" />
         )}
       </View>
     );
   }
 
-  // ─── Photo preview ───
-  if (photo) {
-    return (
-      <View style={styles.fill}>
-        <Image
-          source={{uri: `file://${photo.path}`}}
-          style={StyleSheet.absoluteFill}
-          resizeMode="cover"
-        />
-        {/* Top bar */}
-        <View style={[styles.topBar, {paddingTop: insets.top + 8}]}>
-          <Text style={styles.previewTitle}>Captured Photo</Text>
-        </View>
-        {/* Bottom bar */}
-        <View style={[styles.bottomBar, {paddingBottom: insets.bottom + 16}]}>
-          <TouchableOpacity style={styles.retakeBtn} onPress={handleRetake}>
-            <Text style={styles.retakeBtnText}>Retake</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
-
-  // ─── Live camera view ───
   return (
     <View style={styles.fill}>
       <Camera
@@ -151,119 +239,552 @@ function CameraScreen() {
         device={device}
         isActive={true}
         photo={true}
-        outputOrientation="preview"
-        onPreviewOrientationChanged={onOrientationChange}
+        outputOrientation="device"
       />
-      {/* Capture button at bottom */}
-      <View style={[styles.bottomBar, {paddingBottom: insets.bottom + 16}]}>
-        <TouchableOpacity
-          style={styles.captureOuter}
-          onPress={handleCapture}
-          activeOpacity={0.7}
-          disabled={capturing}>
+
+      {/* Grid overlay */}
+      <View style={styles.gridOverlay} pointerEvents="none">
+        {Array.from({length: 11}).map((_, i) => (
           <View
+            key={`h${i}`}
             style={[
-              styles.captureInner,
-              capturing && styles.captureInnerActive,
+              styles.gridLineH,
+              {top: `${(i / 10) * 100}%`},
             ]}
           />
+        ))}
+        {Array.from({length: 11}).map((_, i) => (
+          <View
+            key={`v${i}`}
+            style={[
+              styles.gridLineV,
+              {left: `${(i / 10) * 100}%`},
+            ]}
+          />
+        ))}
+      </View>
+
+      {/* Centre crosshair */}
+      <View style={styles.crosshairContainer} pointerEvents="none">
+        <View
+          style={[
+            styles.crosshairH,
+            {backgroundColor: isAligned ? 'rgba(46, 204, 113, 0.8)' : 'rgba(255, 255, 255, 0.5)'},
+          ]}
+        />
+        <View
+          style={[
+            styles.crosshairV,
+            {backgroundColor: isAligned ? 'rgba(46, 204, 113, 0.8)' : 'rgba(255, 255, 255, 0.5)'},
+          ]}
+        />
+        <View
+          style={[
+            styles.crosshairDot,
+            {backgroundColor: isAligned ? 'rgba(46, 204, 113, 1)' : 'rgba(255, 255, 255, 0.7)'},
+          ]}
+        />
+      </View>
+
+      {/* Spherical guide overlay */}
+      <SphericalGuide
+        capturedIds={capturedIds}
+        attitude={attitude}
+        hFov={hFov}
+        vFov={vFov}
+        onAligned={handleAligned}
+      />
+
+      {/* Image counter */}
+      <View style={[styles.imageCounterContainer, {top: insets.top + 12}]}>
+        <View style={styles.imageCounter}>
+          <Text style={styles.imageCounterText}>
+            {shotCount}/{NUM_SHOTS} Images
+          </Text>
+        </View>
+        <View style={styles.helperTextContainer}>
+          <Text style={styles.helperText}>
+            {isAligned
+              ? 'Aligned! Tap the button to capture'
+              : 'Point at any dot and tap capture'}
+          </Text>
+        </View>
+      </View>
+
+      {/* Top bar — just the close button */}
+      <View style={[styles.captureTopBar, {paddingTop: insets.top + 8}]}>
+        <TouchableOpacity style={styles.iconBtn} onPress={onCancel}>
+          <Text style={styles.iconBtnText}>✕</Text>
+        </TouchableOpacity>
+        <View style={styles.iconBtn} />
+      </View>
+
+      {/* Bottom controls */}
+      <View
+        style={[styles.captureBottomBar, {paddingBottom: insets.bottom + 16}]}>
+        {/* Red capture button */}
+        <TouchableOpacity
+          style={[
+            styles.captureButtonOuter,
+            isCapturing && styles.disabled,
+          ]}
+          onPress={handleCapture}
+          activeOpacity={0.7}
+          disabled={isCapturing}>
+          <View
+            style={[
+              styles.captureButtonInner,
+              isCapturing && styles.captureButtonActive,
+            ]}
+          />
+        </TouchableOpacity>
+
+        <View style={styles.bottomButtonsRow}>
+          {shotCount >= 1 && (
+            <TouchableOpacity
+              style={styles.viewSphereBtn}
+              onPress={onCompose}
+              activeOpacity={0.8}>
+              <Text style={styles.viewSphereBtnText}>
+                View Sphere ({shotCount})
+              </Text>
+            </TouchableOpacity>
+          )}
+          {shotCount >= 2 && (
+            <TouchableOpacity
+              style={styles.resetBtn}
+              onPress={onCancel}
+              activeOpacity={0.8}>
+              <Text style={styles.resetBtnText}>Reset All</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ─── Composing Screen ─────────────────────────────────────────────────────────
+
+function ComposingScreen() {
+  return (
+    <View style={[styles.fill, styles.darkBg, styles.centered]}>
+      <ActivityIndicator size="large" color="#6366f1" />
+      <Text style={styles.stitchTitle}>Building Panorama…</Text>
+      <Text style={[styles.hintText, {marginTop: 12}]}>
+        Composing your photos into an equirectangular image
+      </Text>
+    </View>
+  );
+}
+
+// ─── Viewer Screen (360° Sphere) ──────────────────────────────────────────────
+
+function ViewerScreen({
+  imagePath,
+  onRetake,
+  onHome,
+}: {
+  imagePath: string;
+  onRetake: () => void;
+  onHome: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={styles.fill}>
+      <SphereViewer imagePath={imagePath} />
+
+      {/* Top bar overlay */}
+      <View style={[styles.viewerTopBar, {paddingTop: insets.top + 8}]}>
+        <Text style={styles.viewerTitle}>360° Photosphere</Text>
+        <Text style={styles.viewerHint}>Drag to look around · Pinch to zoom</Text>
+      </View>
+
+      {/* Bottom controls overlay */}
+      <View
+        style={[styles.viewerBottomBar, {paddingBottom: insets.bottom + 16}]}>
+        <TouchableOpacity
+          style={styles.outlineBtn}
+          onPress={onHome}
+          activeOpacity={0.8}>
+          <Text style={styles.outlineBtnText}>Home</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.primaryBtn}
+          onPress={onRetake}
+          activeOpacity={0.8}>
+          <Text style={styles.primaryBtnText}>Retake</Text>
         </TouchableOpacity>
       </View>
     </View>
   );
 }
 
+// ─── Error Screen ─────────────────────────────────────────────────────────────
+
+function ErrorScreen({
+  message,
+  onRetry,
+  onHome,
+}: {
+  message: string;
+  onRetry: () => void;
+  onHome: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View
+      style={[
+        styles.fill,
+        styles.darkBg,
+        styles.centered,
+        {paddingHorizontal: 32, paddingTop: insets.top, paddingBottom: insets.bottom},
+      ]}>
+      <Text style={styles.errorTitle}>Composing Failed</Text>
+      <Text style={[styles.hintText, {marginBottom: 32, textAlign: 'center'}]}>
+        {message}
+      </Text>
+      <TouchableOpacity
+        style={[styles.primaryBtn, {marginBottom: 16}]}
+        onPress={onRetry}
+        activeOpacity={0.8}>
+        <Text style={styles.primaryBtnText}>Try Again</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.outlineBtn} onPress={onHome} activeOpacity={0.8}>
+        <Text style={styles.outlineBtnText}>Back to Home</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
+const INDIGO = '#4f46e5';
+const INDIGO_LIGHT = '#6366f1';
+
 const styles = StyleSheet.create({
   fill: {
     flex: 1,
     backgroundColor: '#000',
   },
+  darkBg: {
+    backgroundColor: '#080810',
+  },
   centered: {
-    flex: 1,
-    backgroundColor: '#000',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  permissionText: {
+
+  // ── Home ───────────────────────────────────────────────────────────────────
+  homeContent: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  homeTitle: {
     color: '#fff',
-    fontSize: 18,
-    marginBottom: 20,
-  },
-  noCameraEmoji: {
-    fontSize: 64,
-    marginBottom: 16,
-  },
-  hintText: {
-    color: '#aaa',
-    fontSize: 14,
+    fontSize: 34,
+    fontWeight: '800',
     textAlign: 'center',
-    paddingHorizontal: 40,
+    letterSpacing: 4,
+    lineHeight: 42,
+    marginBottom: 18,
+  },
+  homeSubtitle: {
+    color: '#666',
+    fontSize: 15,
+    textAlign: 'center',
+    lineHeight: 23,
+    marginBottom: 28,
+  },
+  homeFeatures: {
+    alignSelf: 'stretch',
+    gap: 10,
+    marginBottom: 40,
+    paddingHorizontal: 16,
+  },
+  featureItem: {
+    color: '#888',
+    fontSize: 14,
     lineHeight: 20,
   },
-  permissionBtn: {
-    backgroundColor: '#4f46e5',
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: 12,
+
+  // ── Shared buttons ─────────────────────────────────────────────────────────
+  primaryBtn: {
+    backgroundColor: INDIGO,
+    paddingHorizontal: 40,
+    paddingVertical: 16,
+    borderRadius: 50,
   },
-  permissionBtnText: {
+  primaryBtnText: {
     color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  outlineBtn: {
+    paddingHorizontal: 36,
+    paddingVertical: 15,
+    borderRadius: 50,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.25)',
+  },
+  outlineBtnText: {
+    color: '#ccc',
     fontSize: 16,
     fontWeight: '600',
   },
-  topBar: {
+
+  // ── Grid overlay ───────────────────────────────────────────────────────────
+  gridOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 2,
+  },
+  gridLineH: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  gridLineV: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+
+  // ── Centre crosshair ──────────────────────────────────────────────────────
+  crosshairContainer: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    width: 40,
+    height: 40,
+    marginLeft: -20,
+    marginTop: -20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 5,
+  },
+  crosshairH: {
+    position: 'absolute',
+    width: 40,
+    height: 1.5,
+  },
+  crosshairV: {
+    position: 'absolute',
+    width: 1.5,
+    height: 40,
+  },
+  crosshairDot: {
+    position: 'absolute',
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+
+  // ── Image counter + helper text ────────────────────────────────────────────
+  imageCounterContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  imageCounter: {
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  imageCounterText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: {width: 0, height: 1},
+    textShadowRadius: 2,
+  },
+  helperTextContainer: {
+    marginTop: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    maxWidth: '80%',
+  },
+  helperText: {
+    color: '#fff',
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: {width: 0, height: 1},
+    textShadowRadius: 2,
+  },
+
+  // ── Capture top bar ────────────────────────────────────────────────────────
+  captureTopBar: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingBottom: 12,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    paddingBottom: 14,
+    zIndex: 10,
+  },
+  iconBtn: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  previewTitle: {
+  iconBtnText: {
     color: '#fff',
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '600',
   },
-  bottomBar: {
+  disabled: {
+    opacity: 0.3,
+  },
+
+  // ── Capture bottom bar ─────────────────────────────────────────────────────
+  captureBottomBar: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
     alignItems: 'center',
     paddingTop: 16,
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    gap: 20,
+    zIndex: 10,
   },
-  captureOuter: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 4,
-    borderColor: '#fff',
+  captureButtonOuter: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  captureInner: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#fff',
+  captureButtonInner: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#f71735',
   },
-  captureInnerActive: {
-    backgroundColor: '#ccc',
+  captureButtonActive: {
+    backgroundColor: '#a0102b',
   },
-  retakeBtn: {
-    backgroundColor: '#fff',
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-    borderRadius: 12,
+  bottomButtonsRow: {
+    flexDirection: 'row',
+    gap: 10,
   },
-  retakeBtnText: {
-    color: '#000',
+  viewSphereBtn: {
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 25,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  viewSphereBtnText: {
+    color: '#fff',
     fontSize: 16,
+    fontWeight: 'bold',
+  },
+  resetBtn: {
+    backgroundColor: 'rgba(255, 0, 0, 0.3)',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 25,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  resetBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+
+  // ── Stitching ──────────────────────────────────────────────────────────────
+  stitchTitle: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: '700',
+    marginTop: 20,
+    textAlign: 'center',
+  },
+
+  // ── Viewer (Sphere) ────────────────────────────────────────────────────────
+  viewerTopBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    paddingBottom: 12,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    zIndex: 10,
+  },
+  viewerTitle: {
+    color: '#fff',
+    fontSize: 18,
     fontWeight: '700',
   },
-});
+  viewerHint: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  viewerBottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 16,
+    paddingTop: 16,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    zIndex: 10,
+  },
 
-export default App;
+  // ── Error ──────────────────────────────────────────────────────────────────
+  errorTitle: {
+    color: '#f87171',
+    fontSize: 22,
+    fontWeight: '700',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+
+  // ── Shared text ────────────────────────────────────────────────────────────
+  bodyText: {
+    color: '#fff',
+    fontSize: 17,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  hintText: {
+    color: '#666',
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+    paddingHorizontal: 16,
+  },
+  noCameraEmoji: {
+    fontSize: 56,
+    marginBottom: 14,
+  },
+});

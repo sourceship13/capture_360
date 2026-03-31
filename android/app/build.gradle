@@ -111,6 +111,10 @@ dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
 
+    // OpenCV 4.10 — provides the Stitcher, Imgcodecs, and companion JNI libs.
+    // The AAR bundles all .so files; no additional cmake/NDK setup is needed.
+    implementation("org.opencv:opencv:4.10.0")
+
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")
     } else {
