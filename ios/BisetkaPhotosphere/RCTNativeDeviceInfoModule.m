@@ -5,6 +5,7 @@
 
 @implementation RCTNativeDeviceInfoModule {
   CMMotionManager *_motionManager;
+  NSOperationQueue *_motionQueue;
   BOOL _hasListeners;
   double _yawOffset;
   BOOL _yawOffsetCaptured;
@@ -75,14 +76,18 @@ RCT_EXPORT_METHOD(getDeviceLocale:(RCTResponseSenderBlock)callback) {
 
 // --- Motion tracking ---
 RCT_EXPORT_METHOD(startAttitudeUpdates) {
-  _yawOffsetCaptured = NO; // Reset so yaw starts at 0 for each session
   if (!_motionManager) {
     _motionManager = [[CMMotionManager alloc] init];
+  }
+  if (!_motionQueue) {
+    _motionQueue = [[NSOperationQueue alloc] init];
+    _motionQueue.name = @"com.bisetka.motionQueue";
+    _motionQueue.maxConcurrentOperationCount = 1;
   }
   if (_motionManager.isDeviceMotionAvailable && !_motionManager.isDeviceMotionActive) {
     _motionManager.deviceMotionUpdateInterval = 1.0 / 30.0; // 30 Hz
     [_motionManager startDeviceMotionUpdatesUsingReferenceFrame:CMAttitudeReferenceFrameXArbitraryZVertical
-                                                       toQueue:[NSOperationQueue mainQueue]
+                                                       toQueue:_motionQueue
                                                    withHandler:^(CMDeviceMotion *motion, NSError *error) {
       if (!self->_hasListeners || !motion) return;
 
@@ -103,41 +108,17 @@ RCT_EXPORT_METHOD(startAttitudeUpdates) {
       // Camera pitch (elevation) = angle above the horizon (degrees)
       double cameraPitch = asin(fmax(-1.0, fmin(1.0, camZ))) * 180.0 / M_PI;
 
-      // On first sample, capture yaw offset so "front" direction = 0°
-      if (!self->_yawOffsetCaptured) {
-        self->_yawOffset = cameraYaw;
-        self->_yawOffsetCaptured = YES;
-      }
-
-      double adjustedYaw = cameraYaw - self->_yawOffset;
-      if (adjustedYaw > 180.0) adjustedYaw -= 360.0;
-      if (adjustedYaw < -180.0) adjustedYaw += 360.0;
-
-      // Build yaw-offset-adjusted rotation matrix: R' = Rz(+offset) * R
-      // This rotates the world frame so "front" at startup aligns with +Y.
-      double offsetRad = self->_yawOffset * M_PI / 180.0;
-      double co = cos(offsetRad);
-      double so = sin(offsetRad);
-
-      double a11 = co * m.m11 - so * m.m21;
-      double a12 = co * m.m12 - so * m.m22;
-      double a13 = co * m.m13 - so * m.m23;
-      double a21 = so * m.m11 + co * m.m21;
-      double a22 = so * m.m12 + co * m.m22;
-      double a23 = so * m.m13 + co * m.m23;
-      double a31 = m.m31;
-      double a32 = m.m32;
-      double a33 = m.m33;
-
+      // Send RAW yaw (no offset) and raw rotation matrix.
+      // JS will handle the yaw offset for the guide-dot coordinate system.
       [self sendEventWithName:@"onAttitude"
                          body:@{
-                           @"yaw":   @(adjustedYaw),
+                           @"yaw":   @(cameraYaw),
                            @"pitch": @(cameraPitch),
                            @"roll":  @(0.0),
                            @"rotationMatrix": @[
-                             @(a11), @(a12), @(a13),
-                             @(a21), @(a22), @(a23),
-                             @(a31), @(a32), @(a33),
+                             @(m.m11), @(m.m12), @(m.m13),
+                             @(m.m21), @(m.m22), @(m.m23),
+                             @(m.m31), @(m.m32), @(m.m33),
                            ],
                          }];
     }];

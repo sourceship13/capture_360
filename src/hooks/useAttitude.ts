@@ -2,10 +2,14 @@
  * useAttitude — streams device orientation (yaw / pitch / roll) from
  * CMMotionManager on iOS via the NativeDeviceInfo event emitter.
  *
+ * The native module sends RAW yaw/pitch (no offset). This hook captures
+ * the first yaw sample as an offset so that "front" direction = 0°.
+ *
  * Returns the current attitude in degrees:
  *   yaw   — rotation around vertical axis (0° at start, ±180°)
  *   pitch — tilt forward/back (0° = horizon, +90° = up, -90° = down)
  *   roll  — tilt left/right
+ *   rawYaw — unprocessed yaw from native (for debugging)
  */
 import {useEffect, useRef, useState} from 'react';
 import {NativeEventEmitter, NativeModules} from 'react-native';
@@ -13,27 +17,45 @@ import {NativeEventEmitter, NativeModules} from 'react-native';
 const {NativeDeviceInfo} = NativeModules;
 
 export type Attitude = {
-  yaw: number;   // degrees
+  yaw: number;   // degrees, adjusted (0° = start direction)
   pitch: number;  // degrees
   roll: number;   // degrees
-  rotationMatrix?: number[]; // 9 elements: yaw-offset-adjusted rotation matrix
+  rawYaw: number; // degrees, raw from native (for debug)
+  rotationMatrix?: number[]; // 9 elements: raw rotation matrix from CoreMotion
 };
 
 export function useAttitude(active: boolean = true): Attitude {
-  const [attitude, setAttitude] = useState<Attitude>({yaw: 0, pitch: 0, roll: 0});
-  const emitterRef = useRef<NativeEventEmitter | null>(null);
+  const [attitude, setAttitude] = useState<Attitude>({yaw: 0, pitch: 0, roll: 0, rawYaw: 0});
+  const yawOffsetRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!active || !NativeDeviceInfo) {
       return;
     }
 
-    if (!emitterRef.current) {
-      emitterRef.current = new NativeEventEmitter(NativeDeviceInfo);
-    }
+    const emitter = new NativeEventEmitter(NativeDeviceInfo);
+    // Reset yaw offset for each new session
+    yawOffsetRef.current = null;
 
-    const sub = emitterRef.current.addListener('onAttitude', (data: Attitude) => {
-      setAttitude(data);
+    const sub = emitter.addListener('onAttitude', (data: {yaw: number; pitch: number; roll: number; rotationMatrix?: number[]}) => {
+      const rawYaw = data.yaw;
+
+      // Capture first yaw as offset
+      if (yawOffsetRef.current === null) {
+        yawOffsetRef.current = rawYaw;
+      }
+
+      let adjustedYaw = rawYaw - yawOffsetRef.current;
+      if (adjustedYaw > 180) adjustedYaw -= 360;
+      if (adjustedYaw < -180) adjustedYaw += 360;
+
+      setAttitude({
+        yaw: adjustedYaw,
+        pitch: data.pitch,
+        roll: data.roll,
+        rawYaw,
+        rotationMatrix: data.rotationMatrix,
+      });
     });
 
     NativeDeviceInfo.startAttitudeUpdates();

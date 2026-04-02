@@ -21,10 +21,10 @@ import {
   useCameraPermission,
 } from 'react-native-vision-camera';
 import {SafeAreaProvider, useSafeAreaInsets} from 'react-native-safe-area-context';
-import {NUM_SHOTS, usePhotosphere} from './src/hooks/usePhotosphere';
+import {usePhotosphere} from './src/hooks/usePhotosphere';
+import type {ShotList} from './src/hooks/usePhotosphere';
 import {useAttitude} from './src/hooks/useAttitude';
 import SphericalGuide, {
-  SPHERE_POSITIONS,
   NUM_SPHERE_SHOTS,
 } from './src/components/SphericalGuide';
 import SphereViewer from './src/components/SphereViewer';
@@ -41,16 +41,16 @@ export default function App() {
 }
 
 function PhotosphereRoot() {
-  const {state, startCapture, addShot, removeShot, compose, reset} =
+  const {state, startCapture, addShot, undoLastShot, compose, reset} =
     usePhotosphere();
 
   if (state.status === 'capturing') {
     return (
       <CaptureScreen
-        shotMap={state.shotMap}
+        shots={state.shots}
         onAddShot={addShot}
-        onRemoveShot={removeShot}
-        onCompose={() => compose(state.shotMap)}
+        onUndoLastShot={undoLastShot}
+        onCompose={(h, v) => compose(state.shots, h, v)}
         onCancel={reset}
       />
     );
@@ -127,16 +127,16 @@ function HomeScreen({onStart}: {onStart: () => void}) {
 // ─── Capture Screen ───────────────────────────────────────────────────────────
 
 function CaptureScreen({
-  shotMap,
+  shots,
   onAddShot,
-  onRemoveShot,
+  onUndoLastShot,
   onCompose,
   onCancel,
 }: {
-  shotMap: import('./src/hooks/usePhotosphere').ShotMap;
-  onAddShot: (positionId: number, path: string, yaw: number, pitch: number) => void;
-  onRemoveShot: (positionId: number) => void;
-  onCompose: () => void;
+  shots: ShotList;
+  onAddShot: (path: string, yaw: number, pitch: number) => void;
+  onUndoLastShot: () => void;
+  onCompose: (hFov: number, vFov: number) => void;
   onCancel: () => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -148,29 +148,23 @@ function CaptureScreen({
   const attitude = useAttitude(true);
 
   const [isCapturing, setIsCapturing] = useState(false);
-  const [isAligned, setIsAligned] = useState(false);
-  const [alignedPosId, setAlignedPosId] = useState<number | null>(null);
-  const shotCount = shotMap.size;
+  const shotCount = shots.length;
 
   // Compute the visible camera FOV accounting for portrait mode + cover crop.
-  // format.fieldOfView = sensor horizontal FOV in landscape.
-  // In portrait with cover mode:
-  //   visible HFOV = 2 * atan(tan(sensorHFOV/2) * screenW / screenH)
-  //   visible VFOV = sensorHFOV
+  // Filter out ultra-wide (>100°) and telephoto (<40°) formats; take median
+  // to get the standard wide camera's FOV.
   const {hFov, vFov} = useMemo(() => {
-    // Use the best format's FOV (VisionCamera auto-selects highest-res format)
-    const fovs = device?.formats?.map(f => f.fieldOfView).filter(Boolean) ?? [];
-    const sensorHFov = fovs.length > 0 ? Math.max(...fovs) : 69; // fallback ~iPhone wide
+    const rawFovs = (device?.formats?.map(f => f.fieldOfView).filter(Boolean) ?? [])
+      .filter(f => f >= 40 && f <= 100);
+    const sorted = rawFovs.sort((a, b) => a - b);
+    const sensorHFov = sorted.length > 0
+      ? sorted[Math.floor(sorted.length / 2)]
+      : 69;
     const DEG = Math.PI / 180;
     const visH =
       (2 * Math.atan(Math.tan((sensorHFov / 2) * DEG) * (scrW / scrH))) / DEG;
     return {hFov: visH, vFov: sensorHFov};
   }, [device?.formats, scrW, scrH]);
-
-  const capturedIds = React.useMemo(
-    () => new Set(shotMap.keys()),
-    [shotMap],
-  );
 
   useEffect(() => {
     if (!hasPermission) {
@@ -178,28 +172,22 @@ function CaptureScreen({
     }
   }, [hasPermission, requestPermission]);
 
+  // Capture is always allowed — stores actual device orientation
   const handleCapture = useCallback(async () => {
-    if (!cameraRef.current || isCapturing || alignedPosId == null) {
-      return;
-    }
+    if (!cameraRef.current || isCapturing) return;
     setIsCapturing(true);
     try {
       const result = await cameraRef.current.takePhoto({flash: 'off'});
       const rawPath = result.path.startsWith('file://')
         ? result.path.slice(7)
         : result.path;
-      onAddShot(alignedPosId, rawPath, attitude.yaw, attitude.pitch);
+      onAddShot(rawPath, attitude.yaw, attitude.pitch);
     } catch (e: any) {
       Alert.alert('Capture Error', e.message);
     } finally {
       setIsCapturing(false);
     }
-  }, [isCapturing, alignedPosId, attitude.yaw, attitude.pitch, onAddShot]);
-
-  const handleAligned = useCallback((aligned: boolean, positionId: number | null) => {
-    setIsAligned(aligned);
-    setAlignedPosId(positionId);
-  }, []);
+  }, [isCapturing, attitude.yaw, attitude.pitch, onAddShot]);
 
   if (!hasPermission) {
     return (
@@ -264,49 +252,30 @@ function CaptureScreen({
         ))}
       </View>
 
-      {/* Centre crosshair */}
+      {/* Centre crosshair — thin lines only, no center dot */}
       <View style={styles.crosshairContainer} pointerEvents="none">
-        <View
-          style={[
-            styles.crosshairH,
-            {backgroundColor: isAligned ? 'rgba(46, 204, 113, 0.8)' : 'rgba(255, 255, 255, 0.5)'},
-          ]}
-        />
-        <View
-          style={[
-            styles.crosshairV,
-            {backgroundColor: isAligned ? 'rgba(46, 204, 113, 0.8)' : 'rgba(255, 255, 255, 0.5)'},
-          ]}
-        />
-        <View
-          style={[
-            styles.crosshairDot,
-            {backgroundColor: isAligned ? 'rgba(46, 204, 113, 1)' : 'rgba(255, 255, 255, 0.7)'},
-          ]}
-        />
+        <View style={[styles.crosshairH, {backgroundColor: 'rgba(255,255,255,0.5)'}]} />
+        <View style={[styles.crosshairV, {backgroundColor: 'rgba(255,255,255,0.5)'}]} />
       </View>
 
       {/* Spherical guide overlay */}
       <SphericalGuide
-        capturedIds={capturedIds}
+        shots={shots}
         attitude={attitude}
         hFov={hFov}
         vFov={vFov}
-        onAligned={handleAligned}
       />
 
       {/* Image counter */}
       <View style={[styles.imageCounterContainer, {top: insets.top + 12}]}>
         <View style={styles.imageCounter}>
           <Text style={styles.imageCounterText}>
-            {shotCount}/{NUM_SHOTS} Images
+            {shotCount} Images
           </Text>
         </View>
         <View style={styles.helperTextContainer}>
           <Text style={styles.helperText}>
-            {isAligned
-              ? 'Aligned! Tap the button to capture'
-              : 'Point at any dot and tap capture'}
+            Point anywhere and tap capture
           </Text>
         </View>
       </View>
@@ -342,20 +311,20 @@ function CaptureScreen({
         <View style={styles.bottomButtonsRow}>
           {shotCount >= 1 && (
             <TouchableOpacity
+              style={styles.undoBtn}
+              onPress={onUndoLastShot}
+              activeOpacity={0.8}>
+              <Text style={styles.undoBtnText}>Undo Last</Text>
+            </TouchableOpacity>
+          )}
+          {shotCount >= 1 && (
+            <TouchableOpacity
               style={styles.viewSphereBtn}
-              onPress={onCompose}
+              onPress={() => onCompose(hFov, vFov)}
               activeOpacity={0.8}>
               <Text style={styles.viewSphereBtnText}>
                 View Sphere ({shotCount})
               </Text>
-            </TouchableOpacity>
-          )}
-          {shotCount >= 2 && (
-            <TouchableOpacity
-              style={styles.resetBtn}
-              onPress={onCancel}
-              activeOpacity={0.8}>
-              <Text style={styles.resetBtnText}>Reset All</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -715,6 +684,19 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  undoBtn: {
+    backgroundColor: 'rgba(255, 165, 0, 0.4)',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 25,
+    minWidth: 80,
+    alignItems: 'center' as const,
+  },
+  undoBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold' as const,
   },
 
   // ── Stitching ──────────────────────────────────────────────────────────────

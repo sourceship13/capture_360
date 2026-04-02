@@ -105,9 +105,9 @@ RCT_EXPORT_METHOD(composeEquirect:(NSArray *)shots
             double cx = ((yawDeg + 180.0) / 360.0) * kCanvasW;
             double cy = ((90.0 - pitchDeg) / 180.0) * kCanvasH;
 
-            // Extent this photo covers:
-            double pw = (hFov / 360.0) * kCanvasW;
-            double ph = (vFov / 180.0) * kCanvasH;
+            // Extent this photo covers (with 0.8x scale to prevent overlap)
+            double pw = (hFov / 360.0) * kCanvasW * 0.8;
+            double ph = (vFov / 180.0) * kCanvasH * 0.8;
 
             CGRect destRect = CGRectMake(cx - pw / 2.0, cy - ph / 2.0, pw, ph);
 
