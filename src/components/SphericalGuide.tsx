@@ -329,7 +329,7 @@ const s = StyleSheet.create({
   root: {...StyleSheet.absoluteFillObject},
   debugBox: {
     position: 'absolute',
-    top: 80,
+    top: 240,
     left: 8,
     right: 8,
     backgroundColor: 'rgba(0,0,0,0.8)',

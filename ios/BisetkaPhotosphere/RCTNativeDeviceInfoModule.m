@@ -2,13 +2,16 @@
 #import <UIKit/UIKit.h>
 #import <sys/utsname.h>
 #import <CoreMotion/CoreMotion.h>
+#import <CoreLocation/CoreLocation.h>
 
 @implementation RCTNativeDeviceInfoModule {
   CMMotionManager *_motionManager;
+  CLLocationManager *_locationManager;
   NSOperationQueue *_motionQueue;
   BOOL _hasListeners;
   double _yawOffset;
   BOOL _yawOffsetCaptured;
+  double _magneticHeading;  // compass heading from magnetometer
 }
 
 RCT_EXPORT_MODULE(NativeDeviceInfo)
@@ -84,32 +87,55 @@ RCT_EXPORT_METHOD(startAttitudeUpdates) {
     _motionQueue.name = @"com.bisetka.motionQueue";
     _motionQueue.maxConcurrentOperationCount = 1;
   }
+  
+  // Start magnetometer for true compass heading
+  if (!_locationManager) {
+    _locationManager = [[CLLocationManager alloc] init];
+    _locationManager.delegate = (id<CLLocationManagerDelegate>)self;
+    _magneticHeading = 0.0;
+    NSLog(@"[RCTNativeDeviceInfoModule] Location manager created");
+  }
+  
+  // Request location permission if needed
+  CLAuthorizationStatus status = [CLLocationManager authorizationStatus];
+  NSLog(@"[RCTNativeDeviceInfoModule] Location auth status: %d", (int)status);
+  if (status == kCLAuthorizationStatusNotDetermined) {
+    [_locationManager requestWhenInUseAuthorization];
+  }
+  
+  if ([CLLocationManager headingAvailable]) {
+    NSLog(@"[RCTNativeDeviceInfoModule] Heading available, starting updates");
+    [_locationManager startUpdatingHeading];
+  } else {
+    NSLog(@"[RCTNativeDeviceInfoModule] WARNING: Heading NOT available on this device!");
+  }
+  
   if (_motionManager.isDeviceMotionAvailable && !_motionManager.isDeviceMotionActive) {
     _motionManager.deviceMotionUpdateInterval = 1.0 / 30.0; // 30 Hz
-    [_motionManager startDeviceMotionUpdatesUsingReferenceFrame:CMAttitudeReferenceFrameXArbitraryZVertical
+    // Use XTrueNorthZVertical to get compass-referenced yaw (true north = 0°)
+    [_motionManager startDeviceMotionUpdatesUsingReferenceFrame:CMAttitudeReferenceFrameXTrueNorthZVertical
                                                        toQueue:_motionQueue
                                                    withHandler:^(CMDeviceMotion *motion, NSError *error) {
       if (!self->_hasListeners || !motion) return;
 
-      // Use rotation matrix to derive stable camera yaw/pitch.
-      // Euler angles suffer from gimbal lock when the phone is upright.
+      // Use rotation matrix to derive camera direction
       CMRotationMatrix m = motion.attitude.rotationMatrix;
 
-      // Back camera points in device -Z direction: (0, 0, -1) in device frame.
+      // Back camera points in device -Z direction: (0, 0, -1) in device frame
       // Transform to world frame: camera_world = R * (0, 0, -1)
-      // With XArbitraryZVertical, world Z = up (gravity).
-      double camX = -m.m13;
-      double camY = -m.m23;
-      double camZ = -m.m33;
+      double camX = -m.m13;  // north component
+      double camY = -m.m23;  // east component  
+      double camZ = -m.m33;  // up component
 
-      // Camera yaw (azimuth) = angle in the horizontal plane (degrees)
-      double cameraYaw = atan2(camX, camY) * 180.0 / M_PI;
+      // Use magnetometer heading as the yaw (compass direction)
+      // This gives us true compass bearing: 0° = north, 90° = east, etc.
+      double cameraYaw = self->_magneticHeading;
 
       // Camera pitch (elevation) = angle above the horizon (degrees)
       double cameraPitch = asin(fmax(-1.0, fmin(1.0, camZ))) * 180.0 / M_PI;
 
-      // Send RAW yaw (no offset) and raw rotation matrix.
-      // JS will handle the yaw offset for the guide-dot coordinate system.
+      // Send RAW yaw (compass heading) and raw rotation matrix
+      // JS will handle the yaw offset for the guide-dot coordinate system
       [self sendEventWithName:@"onAttitude"
                          body:@{
                            @"yaw":   @(cameraYaw),
@@ -129,11 +155,33 @@ RCT_EXPORT_METHOD(stopAttitudeUpdates) {
   if (_motionManager && _motionManager.isDeviceMotionActive) {
     [_motionManager stopDeviceMotionUpdates];
   }
+  if (_locationManager) {
+    [_locationManager stopUpdatingHeading];
+  }
+}
+
+// CLLocationManagerDelegate - receive compass heading updates
+- (void)locationManager:(CLLocationManager *)manager didUpdateHeading:(CLHeading *)newHeading {
+  // magneticHeading: 0° = north, 90° = east, 180° = south, 270° = west
+  _magneticHeading = newHeading.magneticHeading;
+  NSLog(@"[RCTNativeDeviceInfoModule] Heading update: %.1f°", _magneticHeading);
+}
+
+- (void)locationManager:(CLLocationManager *)manager didChangeAuthorizationStatus:(CLAuthorizationStatus)status {
+  NSLog(@"[RCTNativeDeviceInfoModule] Auth status changed to: %d", (int)status);
+  if (status == kCLAuthorizationStatusAuthorizedWhenInUse || status == kCLAuthorizationStatusAuthorizedAlways) {
+    if ([CLLocationManager headingAvailable]) {
+      [_locationManager startUpdatingHeading];
+    }
+  }
 }
 
 - (void)dealloc {
   if (_motionManager && _motionManager.isDeviceMotionActive) {
     [_motionManager stopDeviceMotionUpdates];
+  }
+  if (_locationManager) {
+    [_locationManager stopUpdatingHeading];
   }
 }
 

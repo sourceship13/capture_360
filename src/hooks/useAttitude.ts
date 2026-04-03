@@ -44,30 +44,28 @@ export function useAttitude(active: boolean = true): Attitude {
     }
 
     const emitter = new NativeEventEmitter(NativeDeviceInfo);
-    // Reset yaw offset for each new session
-    yawOffsetRef.current = null;
+    // Don't reset offset here - let resetYawOffset() control it
+    if (yawOffsetRef.current === null) {
+      yawOffsetRef.current = 0;  // temp offset until first shot
+    }
 
     const sub = emitter.addListener('onAttitude', (data: {yaw: number; pitch: number; roll: number; rotationMatrix?: number[]}) => {
       const rawYaw = data.yaw;
       latestRawYawRef.current = rawYaw;
 
-      // Capture first yaw as offset
-      if (yawOffsetRef.current === null) {
-        yawOffsetRef.current = rawYaw;
-      }
-
       let adjustedYaw = rawYaw - yawOffsetRef.current;
       if (adjustedYaw > 180) adjustedYaw -= 360;
       if (adjustedYaw < -180) adjustedYaw += 360;
 
-      setAttitude({
+      setAttitude(prev => ({
+        ...prev,
         yaw: adjustedYaw,
         pitch: data.pitch,
         roll: data.roll,
         rawYaw,
-        rotationMatrix: data.rotationMatrix,  // use raw matrix, no adjustment
+        rotationMatrix: data.rotationMatrix,
         resetYawOffset,
-      });
+      }));
     });
 
     NativeDeviceInfo.startAttitudeUpdates();
