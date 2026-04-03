@@ -88,26 +88,31 @@ RCT_EXPORT_METHOD(startAttitudeUpdates) {
     _motionQueue.maxConcurrentOperationCount = 1;
   }
   
-  // Start magnetometer for true compass heading
+  // Start magnetometer for true compass heading (must run on main thread)
   if (!_locationManager) {
-    _locationManager = [[CLLocationManager alloc] init];
-    _locationManager.delegate = (id<CLLocationManagerDelegate>)self;
-    _magneticHeading = 0.0;
-    NSLog(@"[RCTNativeDeviceInfoModule] Location manager created");
-  }
-  
-  // Request location permission if needed
-  CLAuthorizationStatus status = [CLLocationManager authorizationStatus];
-  NSLog(@"[RCTNativeDeviceInfoModule] Location auth status: %d", (int)status);
-  if (status == kCLAuthorizationStatusNotDetermined) {
-    [_locationManager requestWhenInUseAuthorization];
-  }
-  
-  if ([CLLocationManager headingAvailable]) {
-    NSLog(@"[RCTNativeDeviceInfoModule] Heading available, starting updates");
-    [_locationManager startUpdatingHeading];
-  } else {
-    NSLog(@"[RCTNativeDeviceInfoModule] WARNING: Heading NOT available on this device!");
+    dispatch_async(dispatch_get_main_queue(), ^{
+      NSLog(@"[RCTNativeDeviceInfoModule] Setting up location manager on MAIN thread");
+      self->_locationManager = [[CLLocationManager alloc] init];
+      self->_locationManager.delegate = self;
+      self->_magneticHeading = 0.0;
+      NSLog(@"[RCTNativeDeviceInfoModule] Location manager created");
+      
+      // Request location permission if needed
+      CLAuthorizationStatus status = [CLLocationManager authorizationStatus];
+      NSLog(@"[RCTNativeDeviceInfoModule] Location auth status: %d", (int)status);
+      if (status == kCLAuthorizationStatusNotDetermined) {
+        NSLog(@"[RCTNativeDeviceInfoModule] Requesting location permission");
+        [self->_locationManager requestWhenInUseAuthorization];
+      }
+      
+      if ([CLLocationManager headingAvailable]) {
+        NSLog(@"[RCTNativeDeviceInfoModule] Heading available, starting updates");
+        [self->_locationManager startUpdatingLocation];
+        [self->_locationManager startUpdatingHeading];
+      } else {
+        NSLog(@"[RCTNativeDeviceInfoModule] WARNING: Heading NOT available on this device!");
+      }
+    });
   }
   
   if (_motionManager.isDeviceMotionAvailable && !_motionManager.isDeviceMotionActive) {
@@ -189,6 +194,7 @@ RCT_EXPORT_METHOD(stopAttitudeUpdates) {
   }
   if (_locationManager) {
     [_locationManager stopUpdatingHeading];
+    [_locationManager stopUpdatingLocation];
   }
 }
 
@@ -196,7 +202,16 @@ RCT_EXPORT_METHOD(stopAttitudeUpdates) {
 - (void)locationManager:(CLLocationManager *)manager didUpdateHeading:(CLHeading *)newHeading {
   // magneticHeading: 0° = north, 90° = east, 180° = south, 270° = west
   _magneticHeading = newHeading.magneticHeading;
-  NSLog(@"[RCTNativeDeviceInfoModule] Heading update: %.1f°", _magneticHeading);
+  NSLog(@"[RCTNativeDeviceInfoModule] ✅ Heading update: %.1f° (accuracy: %.1f)", _magneticHeading, newHeading.headingAccuracy);
+}
+
+- (void)locationManager:(CLLocationManager *)manager didFailWithError:(NSError *)error {
+  NSLog(@"[RCTNativeDeviceInfoModule] ❌ Location manager error: %@", error.localizedDescription);
+}
+
+- (BOOL)locationManagerShouldDisplayHeadingCalibration:(CLLocationManager *)manager {
+  NSLog(@"[RCTNativeDeviceInfoModule] Heading calibration requested");
+  return YES; // Allow system to show calibration UI if needed
 }
 
 - (void)locationManager:(CLLocationManager *)manager didChangeAuthorizationStatus:(CLAuthorizationStatus)status {
@@ -214,6 +229,7 @@ RCT_EXPORT_METHOD(stopAttitudeUpdates) {
   }
   if (_locationManager) {
     [_locationManager stopUpdatingHeading];
+    [_locationManager stopUpdatingLocation];
   }
 }
 

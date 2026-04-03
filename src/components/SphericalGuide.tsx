@@ -93,13 +93,13 @@ function projectToScreen(
   // Project angular offsets to screen pixels
   // Center of screen = camera center
   // Positive deltaYaw = target is to the right → positive x
-  // Positive deltaPitch = target is above → negative y (screen coords inverted)
+  // Positive deltaPitch = target is above → positive y (look up → pan up)
   
   const pixelsPerDegreeH = screenW / hFov;
   const pixelsPerDegreeV = screenH / vFov;
   
   const x = screenW / 2 + deltaYaw * pixelsPerDegreeH;
-  const y = screenH / 2 - deltaPitch * pixelsPerDegreeV;
+  const y = screenH / 2 + deltaPitch * pixelsPerDegreeV;
   
   // Calculate angular distance for alignment helper
   const distance = Math.sqrt(deltaYaw ** 2 + deltaPitch ** 2);
