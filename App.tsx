@@ -366,9 +366,10 @@ function ViewerScreen({
   onHome: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const attitude = useAttitude(true);
   return (
     <View style={styles.fill}>
-      <SphereViewer imagePath={imagePath} />
+      <SphereViewer imagePath={imagePath} attitude={attitude} />
 
       {/* Top bar overlay */}
       <View style={[styles.viewerTopBar, {paddingTop: insets.top + 8}]}>

@@ -127,12 +127,25 @@ RCT_EXPORT_METHOD(startAttitudeUpdates) {
       double camY = -m.m23;  // east component  
       double camZ = -m.m33;  // up component
 
-      // Use magnetometer heading as the yaw (compass direction)
-      // This gives us true compass bearing: 0° = north, 90° = east, etc.
-      double cameraYaw = self->_magneticHeading;
-
       // Camera pitch (elevation) = angle above the horizon (degrees)
       double cameraPitch = asin(fmax(-1.0, fmin(1.0, camZ))) * 180.0 / M_PI;
+
+      // Use magnetometer heading as the yaw (compass direction)
+      // This gives us true compass bearing: 0° = north, 90° = east, etc.
+      // Fallback to gyro-based yaw if compass not available
+      double cameraYaw;
+      if (self->_magneticHeading != 0.0) {
+        cameraYaw = self->_magneticHeading;
+      } else {
+        // Fallback: use device rotation yaw (relative, not compass-based)
+        cameraYaw = motion.attitude.yaw * 180.0 / M_PI;
+      }
+      
+      // Debug log every 30th frame (~1 second)
+      static int frameCount = 0;
+      if (frameCount++ % 30 == 0) {
+        NSLog(@"[Motion] yaw=%.1f° pitch=%.1f° (heading: %.1f°)", cameraYaw, cameraPitch, self->_magneticHeading);
+      }
 
       // Send RAW yaw (compass heading) and raw rotation matrix
       // JS will handle the yaw offset for the guide-dot coordinate system

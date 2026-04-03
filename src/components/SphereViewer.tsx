@@ -5,11 +5,12 @@
  * Reads the panorama via the native readFileBase64 module, then injects
  * it into the WebView as a data URL.
  */
-import React, {useCallback, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {View, StyleSheet, ActivityIndicator, Text} from 'react-native';
 import {WebView} from 'react-native-webview';
 import type {WebViewMessageEvent} from 'react-native-webview';
 import {readFileBase64} from '../modules/NativePhotosphere';
+import type {Attitude} from '../hooks/useAttitude';
 
 // ── Raw WebGL equirectangular viewer ──────────────────────────────────────────
 
@@ -169,6 +170,12 @@ const VIEWER_HTML = `<!DOCTYPE html>
 
   window._loadBase64=function(b64){loadImg('data:image/jpeg;base64,'+b64);};
   window._loadFile=function(url){loadImg(url);};
+  window._updateAttitude=function(yawRad,pitchRad){
+    yaw=yawRad*180/Math.PI;
+    pitch=pitchRad*180/Math.PI;
+    pitch=Math.max(-85,Math.min(85,pitch));
+    log('attitude update: yaw='+yaw.toFixed(1)+' pitch='+pitch.toFixed(1));
+  };
 
   function handleMsg(e){
     try{
@@ -192,9 +199,11 @@ const VIEWER_HTML = `<!DOCTYPE html>
 type Props = {
   /** Absolute file path to an equirectangular JPEG panorama. */
   imagePath: string;
+  /** Device attitude (yaw/pitch/roll) from motion sensors */
+  attitude?: Attitude;
 };
 
-export default function SphereViewer({imagePath}: Props) {
+export default function SphereViewer({imagePath, attitude}: Props) {
   const webRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -233,6 +242,29 @@ export default function SphereViewer({imagePath}: Props) {
       }
     } catch {}
   }, []);
+
+  // Inject device motion updates into WebGL viewer
+  useEffect(() => {
+    if (!attitude || !webRef.current) {
+      console.log('[SphereViewer] attitude update skipped:', {hasAttitude: !!attitude, hasRef: !!webRef.current});
+      return;
+    }
+    
+    console.log('[SphereViewer] injecting attitude:', attitude.yaw.toFixed(1), attitude.pitch.toFixed(1));
+    
+    // Convert yaw/pitch to radians and inject
+    const yawRad = (attitude.yaw * Math.PI) / 180;
+    const pitchRad = (attitude.pitch * Math.PI) / 180;
+    
+    webRef.current.injectJavaScript(`
+      if (window._updateAttitude) {
+        window._updateAttitude(${yawRad}, ${pitchRad});
+      } else {
+        console.log('_updateAttitude not ready');
+      }
+      true;
+    `);
+  }, [attitude]);
 
   return (
     <View style={styles.root}>

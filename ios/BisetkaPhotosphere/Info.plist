@@ -38,7 +38,7 @@
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>BisetkaPhotosphere needs photo library access to save panoramas.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
+	<string>Used to determine compass heading for panorama orientation</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
