@@ -39,9 +39,13 @@ export function usePhotosphere(): UsePhotosphereReturn {
 
   const addShot = useCallback(
     (path: string, yaw: number, pitch: number) => {
+      // yaw/pitch are already in degrees from useAttitude
+      console.log(`[addShot] Storing shot at yaw=${yaw.toFixed(1)}° pitch=${pitch.toFixed(1)}°`);
       setState(prev => {
         if (prev.status !== 'capturing') return prev;
-        return {...prev, shots: [...prev.shots, {path, yaw, pitch}]};
+        const newShot = {path, yaw, pitch};
+        console.log(`[addShot] Total shots: ${prev.shots.length + 1}`);
+        return {...prev, shots: [...prev.shots, newShot]};
       });
     },
     [],

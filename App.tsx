@@ -177,17 +177,24 @@ function CaptureScreen({
     if (!cameraRef.current || isCapturing) return;
     setIsCapturing(true);
     try {
+      // On first shot, reset yaw offset to lock grid at current position
+      if (shots.length === 0) {
+        console.log('[CaptureScreen] First shot - locking grid at current yaw');
+        attitude.resetYawOffset();
+      }
+      
       const result = await cameraRef.current.takePhoto({flash: 'off'});
       const rawPath = result.path.startsWith('file://')
         ? result.path.slice(7)
         : result.path;
+      // Use adjusted yaw (relative to start) to match grid which is also relative
       onAddShot(rawPath, attitude.yaw, attitude.pitch);
     } catch (e: any) {
       Alert.alert('Capture Error', e.message);
     } finally {
       setIsCapturing(false);
     }
-  }, [isCapturing, attitude.yaw, attitude.pitch, onAddShot]);
+  }, [isCapturing, attitude, shots.length, onAddShot]);
 
   if (!hasPermission) {
     return (

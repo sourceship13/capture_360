@@ -11,7 +11,7 @@
  *   roll  — tilt left/right
  *   rawYaw — unprocessed yaw from native (for debugging)
  */
-import {useEffect, useRef, useState} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 import {NativeEventEmitter, NativeModules} from 'react-native';
 
 const {NativeDeviceInfo} = NativeModules;
@@ -22,11 +22,21 @@ export type Attitude = {
   roll: number;   // degrees
   rawYaw: number; // degrees, raw from native (for debug)
   rotationMatrix?: number[]; // 9 elements: raw rotation matrix from CoreMotion
+  resetYawOffset: () => void; // reset yaw offset to current rawYaw
 };
 
 export function useAttitude(active: boolean = true): Attitude {
-  const [attitude, setAttitude] = useState<Attitude>({yaw: 0, pitch: 0, roll: 0, rawYaw: 0});
+  const [attitude, setAttitude] = useState<Attitude>({
+    yaw: 0, pitch: 0, roll: 0, rawYaw: 0,
+    resetYawOffset: () => {},  // placeholder, will be replaced
+  });
   const yawOffsetRef = useRef<number | null>(null);
+  const latestRawYawRef = useRef<number>(0);
+
+  const resetYawOffset = useCallback(() => {
+    console.log('[useAttitude] Resetting yaw offset to current position:', latestRawYawRef.current);
+    yawOffsetRef.current = latestRawYawRef.current;
+  }, []);
 
   useEffect(() => {
     if (!active || !NativeDeviceInfo) {
@@ -39,6 +49,7 @@ export function useAttitude(active: boolean = true): Attitude {
 
     const sub = emitter.addListener('onAttitude', (data: {yaw: number; pitch: number; roll: number; rotationMatrix?: number[]}) => {
       const rawYaw = data.yaw;
+      latestRawYawRef.current = rawYaw;
 
       // Capture first yaw as offset
       if (yawOffsetRef.current === null) {
@@ -54,7 +65,8 @@ export function useAttitude(active: boolean = true): Attitude {
         pitch: data.pitch,
         roll: data.roll,
         rawYaw,
-        rotationMatrix: data.rotationMatrix,
+        rotationMatrix: data.rotationMatrix,  // use raw matrix, no adjustment
+        resetYawOffset,
       });
     });
 
@@ -64,7 +76,7 @@ export function useAttitude(active: boolean = true): Attitude {
       sub.remove();
       NativeDeviceInfo.stopAttitudeUpdates();
     };
-  }, [active]);
+  }, [active, resetYawOffset]);
 
   return attitude;
 }

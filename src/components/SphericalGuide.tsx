@@ -26,7 +26,9 @@ function generateRegularGrid(): CapturePosition[] {
     if (pitch === 90 || pitch === -90) {
       points.push({id: id++, yaw: 0, pitch, label: pitch > 0 ? 'Z+' : 'Z-'});
     } else {
-      for (let yaw = 0; yaw < 360; yaw += 30) {
+      // Generate grid centered at 0° (straight ahead at start)
+      // Yaw from -180 to +150 in 30° steps
+      for (let yaw = -180; yaw <= 180; yaw += 30) {
         points.push({id: id++, yaw, pitch, label: `${yaw}/${pitch}`});
       }
     }
@@ -141,11 +143,47 @@ function angularDist(yaw1: number, pitch1: number, yaw2: number, pitch2: number)
   return Math.acos(Math.min(1, Math.max(-1, d))) / DEG;
 }
 
+/**
+ * Simple projection: treat yaw/pitch as angles relative to current camera.
+ * This avoids rotation matrix complexity and should give stable AR.
+ */
+function projectSimple(
+  targetYaw: number,
+  targetPitch: number,
+  camYaw: number,
+  camPitch: number,
+  screenW: number,
+  screenH: number,
+  hFov: number,
+  vFov: number,
+): Projected {
+  // Angular offset from camera center
+  let dyaw = targetYaw - camYaw;
+  // Wrap to [-180, 180]
+  if (dyaw > 180) dyaw -= 360;
+  if (dyaw < -180) dyaw += 360;
+  const dpitch = targetPitch - camPitch;
+  
+  // Debug first bullseye
+  if (targetYaw === 0 && targetPitch === 0) {
+    console.log(`[projectSimple] Center bullseye: target=(0,0) cam=(${camYaw.toFixed(1)},${camPitch.toFixed(1)}) → offset=(${dyaw.toFixed(1)},${dpitch.toFixed(1)})`);
+  }
+  
+  // Check if in FOV
+  const inFov = Math.abs(dyaw) < hFov / 2 + 10 && Math.abs(dpitch) < vFov / 2 + 10;
+  
+  // Project to screen (linear approximation)
+  const x = screenW / 2 + (dyaw / hFov) * screenW;
+  const y = screenH / 2 - (dpitch / vFov) * screenH;
+  
+  return {x, y, inFov};
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const DOT_SIZE = 32;
 const CAPTURED_DOT_SIZE = 28;
-const COVER_THRESHOLD = 20;
+const COVER_THRESHOLD = 30;  // Increased from 20° to 30° for easier coverage detection
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -190,25 +228,23 @@ export default function SphericalGuide({shots, attitude, hFov, vFov}: Props) {
     }));
   }, []);
 
-  // Project guides
+  // Project guides using simple angular projection (adjusted yaw, grid centered at 0°)
   const projectedGuides = useMemo(() => {
-    if (!rm || rm.length !== 9) return [];
-    return worldDirs.map(({pos, worldDir}) => ({
+    return SPHERE_POSITIONS.map(pos => ({
       pos,
-      ...projectAR(worldDir, rm, W, H, hFov, vFov),
+      ...projectSimple(pos.yaw, pos.pitch, attitude.yaw, attitude.pitch, W, H, hFov, vFov),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [worldDirs, matKey, W, H, hFov, vFov]);
+  }, [attitude.yaw, attitude.pitch, W, H, hFov, vFov]);
 
-  // Project shots
+  // Project shots using simple angular projection (adjusted yaw, relative to start)
   const projectedShots = useMemo(() => {
-    if (!rm || rm.length !== 9) return [];
-    return shots.map((shot, idx) => {
-      const worldDir = normalize(yawPitchToWorld(shot.yaw, shot.pitch));
-      return {idx, ...projectAR(worldDir, rm, W, H, hFov, vFov)};
-    });
+    return shots.map((shot, idx) => ({
+      idx,
+      ...projectSimple(shot.yaw, shot.pitch, attitude.yaw, attitude.pitch, W, H, hFov, vFov),
+    }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shots, matKey, W, H, hFov, vFov]);
+  }, [shots, attitude.yaw, attitude.pitch, W, H, hFov, vFov]);
 
   const visibleGuides = projectedGuides.filter(p => p.inFov && !coveredIds.has(p.pos.id)).length;
   const visibleShots = projectedShots.filter(p => p.inFov).length;
