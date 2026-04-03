@@ -121,34 +121,49 @@ RCT_EXPORT_METHOD(startAttitudeUpdates) {
       // Use rotation matrix to derive camera direction in world space
       CMRotationMatrix m = motion.attitude.rotationMatrix;
 
-      // Back camera points in device -Z direction: (0, 0, -1) in device frame
-      // Transform to world frame: camera_world = R * (0, 0, -1)
-      double camX = -m.m13;  // north component (X+ = north in TrueNorth frame)
-      double camY = -m.m23;  // east component (Y+ = east)
-      double camZ = -m.m33;  // up component (Z+ = up)
+      // Get device orientation
+      UIDeviceOrientation orientation = [[UIDevice currentDevice] orientation];
+      
+      // Back camera direction in device frame depends on orientation:
+      // Device coords: +X = right, +Y = top of device, +Z = out of screen (toward user)
+      // Back camera points AWAY from screen:
+      // - Portrait: camera = +Z (out the back, away from screen)
+      // - Landscape Right: camera = -X (back points left when home button is right)
+      // - Landscape Left: camera = +X (back points right when home button is left) 
+      // - Portrait Upside Down: camera = +Z (same as portrait, out the back)
+      double camDeviceX = 0.0, camDeviceY = 0.0, camDeviceZ = 1.0; // default: portrait
+      
+      if (orientation == UIDeviceOrientationLandscapeRight) {
+        camDeviceX = -1.0; camDeviceY = 0.0; camDeviceZ = 0.0;
+      } else if (orientation == UIDeviceOrientationLandscapeLeft) {
+        camDeviceX = 1.0; camDeviceY = 0.0; camDeviceZ = 0.0;
+      }
+      // Portrait and PortraitUpsideDown both use +Z (out the back)
+      
+      // Transform camera vector to world frame: camera_world = R * camera_device
+      double camX = m.m11 * camDeviceX + m.m12 * camDeviceY + m.m13 * camDeviceZ;  // north
+      double camY = m.m21 * camDeviceX + m.m22 * camDeviceY + m.m23 * camDeviceZ;  // east
+      double camZ = m.m31 * camDeviceX + m.m32 * camDeviceY + m.m33 * camDeviceZ;  // up
 
       // Camera pitch (elevation) = angle above the horizon (degrees)
       double cameraPitch = asin(fmax(-1.0, fmin(1.0, camZ))) * 180.0 / M_PI;
 
-      // Camera yaw (compass bearing) = horizontal direction the camera is pointing
-      // Project camera vector onto horizontal plane (X-Y), then compute angle from north
-      // atan2(east, north) gives angle clockwise from north: 0° = north, 90° = east
-      double cameraYaw = atan2(camY, camX) * 180.0 / M_PI;
-      
-      // Normalize to [0, 360)
-      if (cameraYaw < 0.0) {
-        cameraYaw += 360.0;
-      }
-      
-      // Convert to [-180, +180] range (standard: 0° = north, +90° = east, ±180° = south, -90° = west)
+      // Camera yaw = use magnetometer heading (true compass bearing)
+      // magneticHeading: 0° = north, 90° = east, 180° = south, 270° = west
+      // Convert to [-180, +180] range: 0° = north, +90° = east, ±180° = south, -90° = west
+      double cameraYaw = self->_magneticHeading;
       if (cameraYaw > 180.0) {
         cameraYaw -= 360.0;
       }
       
-      // Debug log every 30th frame (~1 second)
+      // DEBUG: log camera vector every 30 frames (~1 sec)
       static int frameCount = 0;
       if (frameCount++ % 30 == 0) {
-        NSLog(@"[Motion] yaw=%.1f° pitch=%.1f° (heading: %.1f°)", cameraYaw, cameraPitch, self->_magneticHeading);
+        NSLog(@"[Attitude] orientation=%ld camDevice=(%.2f,%.2f,%.2f) camWorld=(%.2f,%.2f,%.2f) → yaw=%.1f° pitch=%.1f°",
+              (long)orientation,
+              camDeviceX, camDeviceY, camDeviceZ,
+              camX, camY, camZ,
+              cameraYaw, cameraPitch);
       }
 
       // Send RAW yaw (compass heading) and raw rotation matrix

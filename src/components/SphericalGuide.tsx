@@ -179,14 +179,19 @@ export default function SphericalGuide({attitude, shots, debugMode = false}: Pro
     return set;
   }, [shots]);
   
+  // Use rawYaw/pitch for AR-fixed grid (not offset-adjusted values)
+  // rawYaw = absolute compass bearing, pitch has no offset so it's already "raw"
+  const cameraYaw = attitude.rawYaw;
+  const cameraPitch = attitude.pitch;
+  
   // Project all grid positions to screen
   const projectedDots = useMemo(() => {
     return SPHERE_POSITIONS.map(pos => {
       const projection = projectToScreen(
         pos.yaw,
         pos.pitch,
-        attitude.yaw,
-        attitude.pitch,
+        cameraYaw,
+        cameraPitch,
         W,
         H,
         hFov,
@@ -199,12 +204,12 @@ export default function SphericalGuide({attitude, shots, debugMode = false}: Pro
         captured: coveredIds.has(pos.id),
       };
     });
-  }, [attitude.yaw, attitude.pitch, W, H, coveredIds]);
+  }, [cameraYaw, cameraPitch, W, H, coveredIds]);
   
   // Find nearest dot for alignment helper
   const nearest = useMemo(() => {
-    return findNearestDot(attitude.yaw, attitude.pitch, SPHERE_POSITIONS);
-  }, [attitude.yaw, attitude.pitch]);
+    return findNearestDot(cameraYaw, cameraPitch, SPHERE_POSITIONS);
+  }, [cameraYaw, cameraPitch]);
   
   // Alignment state: aligned if nearest dot is within 5°
   const aligned = nearest && nearest.distance < 5;
@@ -216,7 +221,8 @@ export default function SphericalGuide({attitude, shots, debugMode = false}: Pro
       {debugMode && (
         <View style={s.debugBox}>
           <Text style={s.debugText}>
-            Camera: yaw={attitude.yaw.toFixed(1)}° pitch={attitude.pitch.toFixed(1)}°{'\n'}
+            Camera: yaw={cameraYaw.toFixed(1)}° (raw) pitch={cameraPitch.toFixed(1)}°{'\n'}
+            Relative: yaw={attitude.yaw.toFixed(1)}°{'\n'}
             Nearest: {nearest ? `${nearest.position.label} (${nearest.distance.toFixed(1)}° away)` : 'none'}{'\n'}
             Aligned: {aligned ? '✓ YES' : '✗ NO'}{'\n'}
             Coverage: {coveredIds.size}/{NUM_SPHERE_SHOTS}
