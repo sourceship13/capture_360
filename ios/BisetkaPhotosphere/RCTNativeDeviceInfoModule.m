@@ -118,27 +118,31 @@ RCT_EXPORT_METHOD(startAttitudeUpdates) {
                                                    withHandler:^(CMDeviceMotion *motion, NSError *error) {
       if (!self->_hasListeners || !motion) return;
 
-      // Use rotation matrix to derive camera direction
+      // Use rotation matrix to derive camera direction in world space
       CMRotationMatrix m = motion.attitude.rotationMatrix;
 
       // Back camera points in device -Z direction: (0, 0, -1) in device frame
       // Transform to world frame: camera_world = R * (0, 0, -1)
-      double camX = -m.m13;  // north component
-      double camY = -m.m23;  // east component  
-      double camZ = -m.m33;  // up component
+      double camX = -m.m13;  // north component (X+ = north in TrueNorth frame)
+      double camY = -m.m23;  // east component (Y+ = east)
+      double camZ = -m.m33;  // up component (Z+ = up)
 
       // Camera pitch (elevation) = angle above the horizon (degrees)
       double cameraPitch = asin(fmax(-1.0, fmin(1.0, camZ))) * 180.0 / M_PI;
 
-      // Use magnetometer heading as the yaw (compass direction)
-      // This gives us true compass bearing: 0° = north, 90° = east, etc.
-      // Fallback to gyro-based yaw if compass not available
-      double cameraYaw;
-      if (self->_magneticHeading != 0.0) {
-        cameraYaw = self->_magneticHeading;
-      } else {
-        // Fallback: use device rotation yaw (relative, not compass-based)
-        cameraYaw = motion.attitude.yaw * 180.0 / M_PI;
+      // Camera yaw (compass bearing) = horizontal direction the camera is pointing
+      // Project camera vector onto horizontal plane (X-Y), then compute angle from north
+      // atan2(east, north) gives angle clockwise from north: 0° = north, 90° = east
+      double cameraYaw = atan2(camY, camX) * 180.0 / M_PI;
+      
+      // Normalize to [0, 360)
+      if (cameraYaw < 0.0) {
+        cameraYaw += 360.0;
+      }
+      
+      // Convert to [-180, +180] range (standard: 0° = north, +90° = east, ±180° = south, -90° = west)
+      if (cameraYaw > 180.0) {
+        cameraYaw -= 360.0;
       }
       
       // Debug log every 30th frame (~1 second)

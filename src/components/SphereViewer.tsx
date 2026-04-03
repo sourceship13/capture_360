@@ -168,13 +168,22 @@ const VIEWER_HTML = `<!DOCTYPE html>
     }
   },{passive:false});
 
+  var smoothYaw=0,smoothPitch=0;
+  var smoothing=0.02;  // ultra smooth, minimal jitter
+  
   window._loadBase64=function(b64){loadImg('data:image/jpeg;base64,'+b64);};
   window._loadFile=function(url){loadImg(url);};
   window._updateAttitude=function(yawRad,pitchRad){
-    yaw=yawRad*180/Math.PI;
-    pitch=pitchRad*180/Math.PI;
-    pitch=Math.max(-85,Math.min(85,pitch));
-    log('attitude update: yaw='+yaw.toFixed(1)+' pitch='+pitch.toFixed(1));
+    // Negate yaw to reverse direction (move left → dot comes closer)
+    var targetYaw = -(yawRad*180/Math.PI);
+    var targetPitch = pitchRad*180/Math.PI;
+    
+    // Low-pass filter to smooth jitter
+    smoothYaw += (targetYaw - smoothYaw) * smoothing;
+    smoothPitch += (targetPitch - smoothPitch) * smoothing;
+    
+    yaw = smoothYaw;
+    pitch = Math.max(-85,Math.min(85,smoothPitch));
   };
 
   function handleMsg(e){
@@ -245,22 +254,19 @@ export default function SphereViewer({imagePath, attitude}: Props) {
 
   // Inject device motion updates into WebGL viewer
   useEffect(() => {
-    if (!attitude || !webRef.current) {
-      console.log('[SphereViewer] attitude update skipped:', {hasAttitude: !!attitude, hasRef: !!webRef.current});
-      return;
-    }
+    if (!attitude || !webRef.current) return;
     
-    console.log('[SphereViewer] injecting attitude:', attitude.yaw.toFixed(1), attitude.pitch.toFixed(1));
+    // DEBUG: Log raw device values to figure out the coordinate system
+    console.log(`[DEVICE] yaw=${attitude.yaw.toFixed(1)} pitch=${attitude.pitch.toFixed(1)} roll=${attitude.roll.toFixed(1)}`);
     
-    // Convert yaw/pitch to radians and inject
-    const yawRad = (attitude.yaw * Math.PI) / 180;
-    const pitchRad = (attitude.pitch * Math.PI) / 180;
+    // SWAPPED AGAIN: empirical testing shows device's "pitch" drives horizontal movement
+    // This means device labels are backwards from shader expectations
+    const yawRad = (attitude.pitch * Math.PI) / 180;  // device pitch → shader yaw (horizontal)
+    const pitchRad = (attitude.yaw * Math.PI) / 180;  // device yaw → shader pitch (vertical)
     
     webRef.current.injectJavaScript(`
       if (window._updateAttitude) {
         window._updateAttitude(${yawRad}, ${pitchRad});
-      } else {
-        console.log('_updateAttitude not ready');
       }
       true;
     `);
