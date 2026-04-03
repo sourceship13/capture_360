@@ -3,7 +3,7 @@
  * Fixed grid of dots representing capture positions for equirectangular panorama.
  * Grid pans as you rotate/tilt the phone to align with capture points.
  */
-import React, {useMemo} from 'react';
+import React, {useMemo, useState, useEffect} from 'react';
 import {View, Text, StyleSheet, useWindowDimensions} from 'react-native';
 import type {Attitude} from '../hooks/useAttitude';
 import type {ShotEntry} from '../hooks/usePhotosphere';
@@ -147,12 +147,18 @@ type Props = {
 export default function SphericalGuide({attitude, shots, debugMode = false}: Props) {
   const {width: W, height: H} = useWindowDimensions();
   
+  // Reference yaw is now managed by useAttitude hook via resetYawOffset()
+  // No need to track it locally — attitude.yaw is already relative to locked reference
+  
   const hFov = 60; // horizontal FOV in degrees (typical smartphone)
   const vFov = 75; // vertical FOV in degrees
   
   // Track which positions have been captured
   const coveredIds = useMemo(() => {
     const set = new Set<number>();
+    
+    console.log(`[coveredIds] Checking ${shots.length} shots against ${SPHERE_POSITIONS.length} positions`);
+    
     for (const shot of shots) {
       // Find closest grid position to this shot
       let closestId = -1;
@@ -171,17 +177,23 @@ export default function SphericalGuide({attitude, shots, debugMode = false}: Pro
         }
       }
       
+      console.log(`[coveredIds] Shot at yaw=${shot.yaw.toFixed(1)}° pitch=${shot.pitch.toFixed(1)}° → closest pos ${closestId} (${closestDist.toFixed(1)}° away)`);
+      
       // Mark as covered if shot is within 20° of grid position
       if (closestDist < 20) {
         set.add(closestId);
+        console.log(`[coveredIds] ✓ Marked position ${closestId} as covered`);
+      } else {
+        console.log(`[coveredIds] ✗ Too far (${closestDist.toFixed(1)}° > 20°)`);
       }
     }
+    
+    console.log(`[coveredIds] Final covered set:`, Array.from(set));
     return set;
   }, [shots]);
   
-  // Use rawYaw/pitch for AR-fixed grid (not offset-adjusted values)
-  // rawYaw = absolute compass bearing, pitch has no offset so it's already "raw"
-  const cameraYaw = attitude.rawYaw;
+  // Use offset-adjusted yaw from attitude hook (reference is locked via resetYawOffset)
+  const cameraYaw = attitude.yaw;
   const cameraPitch = attitude.pitch;
   
   // Project all grid positions to screen
@@ -221,11 +233,11 @@ export default function SphericalGuide({attitude, shots, debugMode = false}: Pro
       {debugMode && (
         <View style={s.debugBox}>
           <Text style={s.debugText}>
-            Camera: yaw={cameraYaw.toFixed(1)}° (raw) pitch={cameraPitch.toFixed(1)}°{'\n'}
-            Relative: yaw={attitude.yaw.toFixed(1)}°{'\n'}
+            Camera: yaw={cameraYaw.toFixed(1)}° pitch={cameraPitch.toFixed(1)}°{'\n'}
+            Raw: yaw={attitude.rawYaw.toFixed(1)}°{'\n'}
             Nearest: {nearest ? `${nearest.position.label} (${nearest.distance.toFixed(1)}° away)` : 'none'}{'\n'}
             Aligned: {aligned ? '✓ YES' : '✗ NO'}{'\n'}
-            Coverage: {coveredIds.size}/{NUM_SPHERE_SHOTS}
+            Shots: {shots.length} | Covered: {coveredIds.size}/{NUM_SPHERE_SHOTS}
           </Text>
         </View>
       )}

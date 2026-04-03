@@ -148,6 +148,7 @@ function CaptureScreen({
   const attitude = useAttitude(true);
 
   const [isCapturing, setIsCapturing] = useState(false);
+  const [yawLocked, setYawLocked] = useState(false);
   const shotCount = shots.length;
 
   // Compute the visible camera FOV accounting for portrait mode + cover crop.
@@ -172,17 +173,20 @@ function CaptureScreen({
     }
   }, [hasPermission, requestPermission]);
 
+  // Lock yaw reference when camera preview starts (before first capture)
+  useEffect(() => {
+    if (device && !yawLocked && attitude.rawYaw !== 0) {
+      console.log('[CaptureScreen] Locking yaw offset at camera start:', attitude.rawYaw);
+      attitude.resetYawOffset();
+      setYawLocked(true);
+    }
+  }, [device, yawLocked, attitude]);
+
   // Capture is always allowed — stores actual device orientation
   const handleCapture = useCallback(async () => {
     if (!cameraRef.current || isCapturing) return;
     setIsCapturing(true);
     try {
-      // On first shot, reset yaw offset to lock grid at current position
-      if (shots.length === 0) {
-        console.log('[CaptureScreen] First shot - locking grid at current yaw');
-        attitude.resetYawOffset();
-      }
-      
       const result = await cameraRef.current.takePhoto({flash: 'off'});
       const rawPath = result.path.startsWith('file://')
         ? result.path.slice(7)
