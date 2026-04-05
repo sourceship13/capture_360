@@ -74,9 +74,30 @@ function PhotosphereRoot() {
   }
 
   if (state.status === 'done') {
+    // Use first shot's orientation as initial camera view
+    // Note: SphereViewer has swapped axes (device yaw → viewer pitch, device pitch → viewer yaw)
+    const firstShot = state.shots?.[0];
+    
+    console.log('[PhotosphereRoot] DEBUG shots array:', state.shots);
+    console.log('[PhotosphereRoot] DEBUG firstShot:', firstShot);
+    
+    const initialYaw = firstShot?.pitch ?? 0;  // device pitch → viewer yaw
+    const initialPitch = firstShot?.yaw ?? 0;   // device yaw → viewer pitch
+
+    console.log('[PhotosphereRoot] Initial view (swapped axes):', {
+      firstShot,
+      deviceYaw: firstShot?.yaw,
+      devicePitch: firstShot?.pitch,
+      viewerYaw: initialYaw,
+      viewerPitch: initialPitch,
+      totalShots: state.shots?.length,
+    });
+
     return (
       <ViewerScreen
         imagePath={state.equirectPath}
+        initialYaw={initialYaw}
+        initialPitch={initialPitch}
         onRetake={() => {
           reset();
           startCapture();
@@ -362,10 +383,14 @@ function ComposingScreen() {
 
 function ViewerScreen({
   imagePath,
+  initialYaw = 0,
+  initialPitch = 0,
   onRetake,
   onHome,
 }: {
   imagePath: string;
+  initialYaw?: number;
+  initialPitch?: number;
   onRetake: () => void;
   onHome: () => void;
 }) {
@@ -373,7 +398,12 @@ function ViewerScreen({
   const attitude = useAttitude(true);
   return (
     <View style={styles.fill}>
-      <SphereViewer imagePath={imagePath} attitude={attitude} />
+      <SphereViewer
+        imagePath={imagePath}
+        attitude={attitude}
+        initialYaw={initialYaw}
+        initialPitch={initialPitch}
+      />
 
       {/* Top bar overlay */}
       <View style={[styles.viewerTopBar, {paddingTop: insets.top + 8}]}>

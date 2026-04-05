@@ -155,8 +155,9 @@ const VIEWER_HTML = `<!DOCTYPE html>
   canvas.addEventListener('touchmove',function(e){
     e.preventDefault();
     if(e.touches.length===1){
-      yaw=(txX-e.touches[0].clientX)*.2+txYaw;
-      pitch=(e.touches[0].clientY-txY)*.2+txPitch;
+      // Inverted deltas for correct panning direction
+      yaw=(e.touches[0].clientX-txX)*.2+txYaw;
+      pitch=(txY-e.touches[0].clientY)*.2+txPitch;
       pitch=Math.max(-85,Math.min(85,pitch));
     }else if(e.touches.length===2){
       var dx=e.touches[0].clientX-e.touches[1].clientX;
@@ -173,6 +174,12 @@ const VIEWER_HTML = `<!DOCTYPE html>
   
   window._loadBase64=function(b64){loadImg('data:image/jpeg;base64,'+b64);};
   window._loadFile=function(url){loadImg(url);};
+  window._setInitialView=function(y,p){
+    // Store in degrees (shader converts to radians)
+    yaw=y;pitch=p;smoothYaw=y;smoothPitch=p;
+    log('✅ initial view set: yaw='+y+'° pitch='+p+'°');
+    window.ReactNativeWebView.postMessage(JSON.stringify({type:'log',msg:'✅ _setInitialView called: yaw='+y+' pitch='+p}));
+  };
   window._updateAttitude=function(yawRad,pitchRad){
     // Negate yaw to reverse direction (move left → dot comes closer)
     var targetYaw = -(yawRad*180/Math.PI);
@@ -210,9 +217,13 @@ type Props = {
   imagePath: string;
   /** Device attitude (yaw/pitch/roll) from motion sensors */
   attitude?: Attitude;
+  /** Initial camera position (yaw/pitch in degrees) — defaults to first shot's orientation */
+  initialYaw?: number;
+  initialPitch?: number;
 };
 
-export default function SphereViewer({imagePath, attitude}: Props) {
+export default function SphereViewer({imagePath, attitude, initialYaw = 0, initialPitch = 0}: Props) {
+  console.log('[SphereViewer] Mounting with initial:', {initialYaw, initialPitch});
   const webRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -227,10 +238,15 @@ export default function SphereViewer({imagePath, attitude}: Props) {
       const base64 = await readFileBase64(imagePath);
       console.log('[SphereViewer] base64 length:', base64.length);
 
-      // Inject base64 data directly via JS — avoids file:// origin issues
-      // and postMessage size limits. injectJavaScript handles large strings.
+      // Set initial camera position BEFORE loading image to avoid flash
+      console.log('[SphereViewer] Setting initial view:', {initialYaw, initialPitch});
       webRef.current?.injectJavaScript(`
-        try { window._loadBase64(${JSON.stringify(base64)}); } catch(e) {
+        try {
+          if (window._setInitialView) {
+            window._setInitialView(${initialYaw}, ${initialPitch});
+          }
+          window._loadBase64(${JSON.stringify(base64)});
+        } catch(e) {
           window.ReactNativeWebView.postMessage(JSON.stringify({type:'log',msg:'inject err: '+e.message}));
         }
         true;
@@ -252,25 +268,23 @@ export default function SphereViewer({imagePath, attitude}: Props) {
     } catch {}
   }, []);
 
-  // Inject device motion updates into WebGL viewer
-  useEffect(() => {
-    if (!attitude || !webRef.current) return;
-    
-    // DEBUG: Log raw device values to figure out the coordinate system
-    console.log(`[DEVICE] yaw=${attitude.yaw.toFixed(1)} pitch=${attitude.pitch.toFixed(1)} roll=${attitude.roll.toFixed(1)}`);
-    
-    // SWAPPED AGAIN: empirical testing shows device's "pitch" drives horizontal movement
-    // This means device labels are backwards from shader expectations
-    const yawRad = (attitude.pitch * Math.PI) / 180;  // device pitch → shader yaw (horizontal)
-    const pitchRad = (attitude.yaw * Math.PI) / 180;  // device yaw → shader pitch (vertical)
-    
-    webRef.current.injectJavaScript(`
-      if (window._updateAttitude) {
-        window._updateAttitude(${yawRad}, ${pitchRad});
-      }
-      true;
-    `);
-  }, [attitude]);
+  // DISABLED: Device motion tracking during viewing causes unwanted drift
+  // The viewer should use manual touch controls only, not live sensor updates
+  // useEffect(() => {
+  //   if (!attitude || !webRef.current) return;
+  //   
+  //   console.log(`[DEVICE] yaw=${attitude.yaw.toFixed(1)} pitch=${attitude.pitch.toFixed(1)} roll=${attitude.roll.toFixed(1)}`);
+  //   
+  //   const yawRad = (attitude.pitch * Math.PI) / 180;
+  //   const pitchRad = (attitude.yaw * Math.PI) / 180;
+  //   
+  //   webRef.current.injectJavaScript(`
+  //     if (window._updateAttitude) {
+  //       window._updateAttitude(${yawRad}, ${pitchRad});
+  //     }
+  //     true;
+  //   `);
+  // }, [attitude]);
 
   return (
     <View style={styles.root}>

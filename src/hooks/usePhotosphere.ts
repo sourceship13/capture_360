@@ -1,5 +1,5 @@
 import {useCallback, useState} from 'react';
-import {composeEquirect} from '../modules/NativePhotosphere';
+import {composeEquirect, stitchHorizontal} from '../modules/NativePhotosphere';
 
 /** Each capture stores the image path plus the sensor orientation at capture time. */
 export type ShotEntry = {
@@ -27,6 +27,7 @@ export type UsePhotosphereReturn = {
   addShot: (path: string, yaw: number, pitch: number) => void;
   undoLastShot: () => void;
   compose: (shots: ShotList, cameraHFov?: number, cameraVFov?: number) => void;
+  testHorizontalStitch: (shots: ShotList) => void;
   reset: () => void;
 };
 
@@ -78,9 +79,27 @@ export function usePhotosphere(): UsePhotosphereReturn {
     }
   }, []);
 
+  const testHorizontalStitch = useCallback(async (shots: ShotList) => {
+    if (shots.length < 3) {
+      console.warn('[testHorizontalStitch] Need at least 3 shots');
+      return;
+    }
+    setState({status: 'composing'});
+    try {
+      // Take first 3 shots for testing
+      const testPaths = shots.slice(0, 3).map(s => s.path);
+      const stitchedPath = await stitchHorizontal(testPaths);
+      console.log('[testHorizontalStitch] Success:', stitchedPath);
+      setState({status: 'done', equirectPath: stitchedPath});
+    } catch (e: any) {
+      console.error('[testHorizontalStitch] Failed:', e);
+      setState({status: 'error', message: e.message ?? 'Horizontal stitch failed'});
+    }
+  }, []);
+
   const reset = useCallback(() => {
     setState({status: 'idle'});
   }, []);
 
-  return {state, startCapture, addShot, undoLastShot, compose, reset};
+  return {state, startCapture, addShot, undoLastShot, compose, testHorizontalStitch, reset};
 }

@@ -40,6 +40,21 @@ export function composeEquirect(shots: EquirectShot[]): Promise<string> {
 }
 
 /**
+ * Test function: Stitches 3 horizontal images side-by-side (simple mode)
+ */
+export function stitchHorizontal(paths: string[]): Promise<string> {
+  if (typeof NativePhotosphere.stitchHorizontal !== 'function') {
+    return Promise.reject(
+      new Error(
+        'stitchHorizontal not available. Available: ' +
+        Object.keys(NativePhotosphere).join(', ')
+      )
+    );
+  }
+  return NativePhotosphere.stitchHorizontal(paths);
+}
+
+/**
  * Stitches an ordered list of image file paths into a panoramic JPEG
  * using the platform's native stitching engine.
  */

@@ -19,15 +19,16 @@ export type CapturePosition = {
 
 /**
  * Generate equirectangular grid for 360° panorama capture
- * Spacing: 45° horizontal, 45° vertical
- * Coverage: 8 columns × 5 rows = 40 shots (plus poles)
+ * Spacing: 30° horizontal, 30° vertical (gives ~45% overlap with 55°×70° FOV)
+ * Coverage: 12 columns × 6 rows = ~74 shots total
  */
 function generateEquirectangularGrid(): CapturePosition[] {
   const points: CapturePosition[] = [];
   let id = 0;
   
-  // Vertical levels: -90° (down), -45°, 0° (horizon), +45°, +90° (up)
-  const pitchLevels = [-90, -45, 0, 45, 90];
+  // Vertical levels: -90° (down), -60°, -30°, 0° (horizon), +30°, +60°, +90° (up)
+  // 30° spacing gives good overlap with 70° VFOV
+  const pitchLevels = [-90, -60, -30, 0, 30, 60, 90];
   
   for (const pitch of pitchLevels) {
     if (pitch === 90 || pitch === -90) {
@@ -39,9 +40,9 @@ function generateEquirectangularGrid(): CapturePosition[] {
         label: pitch > 0 ? 'UP' : 'DOWN'
       });
     } else {
-      // Horizontal ring: 8 shots at 45° spacing
-      // Start at -180° (behind), go to +135° (covers full 360°)
-      for (let yaw = -180; yaw <= 135; yaw += 45) {
+      // Horizontal ring: 12 shots at 30° spacing for ~45% overlap
+      // Start at -180° (behind), go to +150° (covers full 360°)
+      for (let yaw = -180; yaw <= 150; yaw += 30) {
         points.push({
           id: id++,
           yaw,
