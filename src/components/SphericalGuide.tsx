@@ -193,7 +193,7 @@ export default function SphericalGuide({attitude, shots, debugMode = false}: Pro
     return set;
   }, [shots]);
   
-  // Use offset-adjusted yaw from attitude hook (reference is locked via resetYawOffset)
+  // Use offset-adjusted yaw from attitude hook
   const cameraYaw = attitude.yaw;
   const cameraPitch = attitude.pitch;
   

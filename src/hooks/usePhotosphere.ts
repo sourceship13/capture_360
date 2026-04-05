@@ -61,6 +61,7 @@ export function usePhotosphere(): UsePhotosphereReturn {
 
   const compose = useCallback(async (shots: ShotList, cameraHFov?: number, cameraVFov?: number) => {
     if (shots.length === 0) return;
+    console.log(`[compose] Composing ${shots.length} shots:`, shots);
     setState({status: 'composing'});
     try {
       const shotHFov = cameraHFov ?? CAMERA_HFOV;
@@ -72,9 +73,12 @@ export function usePhotosphere(): UsePhotosphereReturn {
         hFov: shotHFov,
         vFov: shotVFov,
       }));
+      console.log(`[compose] Calling composeEquirect with hFov=${shotHFov}° vFov=${shotVFov}°`);
       const equirectPath = await composeEquirect(nativeShots);
+      console.log(`[compose] Success! Output: ${equirectPath}`);
       setState({status: 'done', equirectPath});
     } catch (e: any) {
+      console.error(`[compose] ERROR:`, e);
       setState({status: 'error', message: e.message ?? 'Composing failed'});
     }
   }, []);

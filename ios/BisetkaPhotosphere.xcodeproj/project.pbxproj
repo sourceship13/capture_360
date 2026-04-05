@@ -17,6 +17,7 @@
 		DEBB2BD72F7B436F0062B357 /* opencv2.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DEBB2BD52F7B43410062B357 /* opencv2.framework */; };
 		DEBB2BD82F7B436F0062B357 /* opencv2.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = DEBB2BD52F7B43410062B357 /* opencv2.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		DEBB2BDC2F7B44020062B357 /* RCTPhotosphereModule.mm in Sources */ = {isa = PBXBuildFile; fileRef = DEBB2BDB2F7B44020062B357 /* RCTPhotosphereModule.mm */; };
+		DEBB2BDE2F7B44100062B357 /* OpenCVWrapper.mm in Sources */ = {isa = PBXBuildFile; fileRef = DEBB2BDD2F7B44100062B357 /* OpenCVWrapper.mm */; };
 		E446A2F642EBAD990B99ADC9 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
@@ -52,6 +53,8 @@
 		DEBB2BD52F7B43410062B357 /* opencv2.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = opencv2.framework; sourceTree = "<group>"; };
 		DEBB2BDA2F7B44020062B357 /* RCTPhotosphereModule.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RCTPhotosphereModule.h; sourceTree = "<group>"; };
 		DEBB2BDB2F7B44020062B357 /* RCTPhotosphereModule.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RCTPhotosphereModule.mm; sourceTree = "<group>"; };
+		DEBB2BDC2F7B44100062B357 /* OpenCVWrapper.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = OpenCVWrapper.h; path = BisetkaPhotosphere/OpenCVWrapper.h; sourceTree = "<group>"; };
+		DEBB2BDD2F7B44100062B357 /* OpenCVWrapper.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = OpenCVWrapper.mm; path = BisetkaPhotosphere/OpenCVWrapper.mm; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -75,6 +78,8 @@
 				DE0619AB2F822308002E0DE4 /* PhotosphereStitcher.swift */,
 				DEBB2BDA2F7B44020062B357 /* RCTPhotosphereModule.h */,
 				DEBB2BDB2F7B44020062B357 /* RCTPhotosphereModule.mm */,
+				DEBB2BDC2F7B44100062B357 /* OpenCVWrapper.h */,
+				DEBB2BDD2F7B44100062B357 /* OpenCVWrapper.mm */,
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
@@ -229,13 +234,9 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-BisetkaPhotosphere/Pods-BisetkaPhotosphere-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
-			inputPaths = (
-			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-BisetkaPhotosphere/Pods-BisetkaPhotosphere-frameworks-${CONFIGURATION}-output-files.xcfilelist",
-			);
-			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -272,13 +273,9 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-BisetkaPhotosphere/Pods-BisetkaPhotosphere-resources-${CONFIGURATION}-input-files.xcfilelist",
 			);
-			inputPaths = (
-			);
 			name = "[CP] Copy Pods Resources";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-BisetkaPhotosphere/Pods-BisetkaPhotosphere-resources-${CONFIGURATION}-output-files.xcfilelist",
-			);
-			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -294,6 +291,7 @@
 			files = (
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
 				DEBB2BDC2F7B44020062B357 /* RCTPhotosphereModule.mm in Sources */,
+				DEBB2BDE2F7B44100062B357 /* OpenCVWrapper.mm in Sources */,
 				DE0619AC2F822308002E0DE4 /* PhotosphereStitcher.m in Sources */,
 				DE0619AD2F822308002E0DE4 /* PhotosphereStitcher.swift in Sources */,
 				AA11BB0000000003 /* RCTNativeDeviceInfoModule.m in Sources */,
