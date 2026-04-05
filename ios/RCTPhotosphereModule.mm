@@ -108,9 +108,9 @@ RCT_EXPORT_METHOD(composeEquirect:(NSArray *)shots
             double cx = ((yawDeg + 180.0) / 360.0) * kCanvasW;
             double cy = ((90.0 - (-pitchDeg)) / 180.0) * kCanvasH;  // negate pitch
 
-            // Extent this photo covers (1.8x scale for ~60% overlap)
-            double pw = (hFov / 360.0) * kCanvasW * 1.8;
-            double ph = (vFov / 180.0) * kCanvasH * 1.8;
+            // Extent this photo covers (1.15x scale for ~15% overlap)
+            double pw = (hFov / 360.0) * kCanvasW * 1.15;
+            double ph = (vFov / 180.0) * kCanvasH * 1.15;
 
             CGRect destRect = CGRectMake(cx - pw / 2.0, cy - ph / 2.0, pw, ph);
 
@@ -140,8 +140,8 @@ RCT_EXPORT_METHOD(composeEquirect:(NSArray *)shots
             CGContextSetBlendMode(ctx, kCGBlendModeDestinationIn);
             
             CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-            CGFloat fadeWidth = pw * 0.35;  // 35% fade zone at edges
-            CGFloat fadeHeight = ph * 0.35;
+            CGFloat fadeWidth = pw * 0.10;  // 10% fade zone at edges
+            CGFloat fadeHeight = ph * 0.10;
             
             // Top gradient (fade in from top edge)
             if (destRect.origin.y < kCanvasH * 0.8) {  // not at bottom
