@@ -101,13 +101,16 @@ RCT_EXPORT_METHOD(composeEquirect:(NSArray *)shots
             // Equirectangular: x ∈ [0, W] maps to yaw [-180°, 180°]
             //                  y ∈ [0, H] maps to pitch [90°, -90°]
             //
+            // NOTE: Inverting pitch because device pitch is opposite of expected
+            // (positive pitch = looking down in device coords, but should be up in world coords)
+            //
             // Centre of this photo on canvas:
             double cx = ((yawDeg + 180.0) / 360.0) * kCanvasW;
-            double cy = ((90.0 - pitchDeg) / 180.0) * kCanvasH;
+            double cy = ((90.0 - (-pitchDeg)) / 180.0) * kCanvasH;  // negate pitch
 
-            // Extent this photo covers (with 0.8x scale to prevent overlap)
-            double pw = (hFov / 360.0) * kCanvasW * 0.8;
-            double ph = (vFov / 180.0) * kCanvasH * 0.8;
+            // Extent this photo covers (1.8x scale for ~60% overlap)
+            double pw = (hFov / 360.0) * kCanvasW * 1.8;
+            double ph = (vFov / 180.0) * kCanvasH * 1.8;
 
             CGRect destRect = CGRectMake(cx - pw / 2.0, cy - ph / 2.0, pw, ph);
 
@@ -115,6 +118,10 @@ RCT_EXPORT_METHOD(composeEquirect:(NSArray *)shots
                   yawDeg, pitchDeg, destRect.origin.x, destRect.origin.y,
                   destRect.size.width, destRect.size.height);
 
+            // Create alpha mask with edge feathering (not circular, just edge fade)
+            CGContextSaveGState(ctx);
+            CGContextBeginTransparencyLayer(ctx, NULL);
+            
             // Handle wrapping: if a photo straddles the left/right edge (yaw ≈ ±180°),
             // draw it twice — once on each side.
             [img drawInRect:destRect];
@@ -128,6 +135,71 @@ RCT_EXPORT_METHOD(composeEquirect:(NSArray *)shots
                 wrapLeft.origin.x -= kCanvasW;
                 [img drawInRect:wrapLeft];
             }
+            
+            // Apply edge feathering mask (horizontal + vertical gradients at borders)
+            CGContextSetBlendMode(ctx, kCGBlendModeDestinationIn);
+            
+            CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+            CGFloat fadeWidth = pw * 0.35;  // 35% fade zone at edges
+            CGFloat fadeHeight = ph * 0.35;
+            
+            // Top gradient (fade in from top edge)
+            if (destRect.origin.y < kCanvasH * 0.8) {  // not at bottom
+                CGFloat topLocs[2] = {0.0, 1.0};
+                CGFloat topComps[8] = {
+                    1,1,1,0,  // top edge: transparent
+                    1,1,1,1   // fade zone end: opaque
+                };
+                CGGradientRef topGrad = CGGradientCreateWithColorComponents(
+                    colorSpace, topComps, topLocs, 2);
+                CGContextDrawLinearGradient(ctx, topGrad,
+                    CGPointMake(0, destRect.origin.y),
+                    CGPointMake(0, destRect.origin.y + fadeHeight),
+                    0);
+                CGGradientRelease(topGrad);
+            }
+            
+            // Bottom gradient
+            if (CGRectGetMaxY(destRect) > kCanvasH * 0.2) {  // not at top
+                CGFloat botLocs[2] = {0.0, 1.0};
+                CGFloat botComps[8] = {
+                    1,1,1,1,  // fade zone start: opaque
+                    1,1,1,0   // bottom edge: transparent
+                };
+                CGGradientRef botGrad = CGGradientCreateWithColorComponents(
+                    colorSpace, botComps, botLocs, 2);
+                CGContextDrawLinearGradient(ctx, botGrad,
+                    CGPointMake(0, CGRectGetMaxY(destRect) - fadeHeight),
+                    CGPointMake(0, CGRectGetMaxY(destRect)),
+                    0);
+                CGGradientRelease(botGrad);
+            }
+            
+            // Left gradient
+            CGFloat leftLocs[2] = {0.0, 1.0};
+            CGFloat leftComps[8] = {1,1,1,0, 1,1,1,1};
+            CGGradientRef leftGrad = CGGradientCreateWithColorComponents(
+                colorSpace, leftComps, leftLocs, 2);
+            CGContextDrawLinearGradient(ctx, leftGrad,
+                CGPointMake(destRect.origin.x, 0),
+                CGPointMake(destRect.origin.x + fadeWidth, 0),
+                0);
+            CGGradientRelease(leftGrad);
+            
+            // Right gradient
+            CGFloat rightLocs[2] = {0.0, 1.0};
+            CGFloat rightComps[8] = {1,1,1,1, 1,1,1,0};
+            CGGradientRef rightGrad = CGGradientCreateWithColorComponents(
+                colorSpace, rightComps, rightLocs, 2);
+            CGContextDrawLinearGradient(ctx, rightGrad,
+                CGPointMake(CGRectGetMaxX(destRect) - fadeWidth, 0),
+                CGPointMake(CGRectGetMaxX(destRect), 0),
+                0);
+            CGGradientRelease(rightGrad);
+            
+            CGColorSpaceRelease(colorSpace);
+            CGContextEndTransparencyLayer(ctx);
+            CGContextRestoreGState(ctx);
 
             drawn++;
         }

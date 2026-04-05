@@ -213,6 +213,7 @@ function CaptureScreen({
         ? result.path.slice(7)
         : result.path;
       // Use adjusted yaw (relative to start) to match grid which is also relative
+      console.log(`[capture] Shot taken at yaw=${attitude.yaw.toFixed(1)}° pitch=${attitude.pitch.toFixed(1)}°`);
       onAddShot(rawPath, attitude.yaw, attitude.pitch);
     } catch (e: any) {
       Alert.alert('Capture Error', e.message);
