@@ -203,6 +203,49 @@ function CaptureScreen({
     }
   }, [device, yawLocked, attitude]);
 
+  // Snap yaw/pitch to nearest grid position if within threshold
+  const snapToGrid = useCallback((yaw: number, pitch: number) => {
+    // Generate grid positions (same as SphericalGuide)
+    const pitchLevels = [-90, -60, -30, 0, 30, 60, 90];
+    const gridPositions: Array<{yaw: number; pitch: number}> = [];
+    
+    pitchLevels.forEach(p => {
+      if (p === 90 || p === -90) {
+        gridPositions.push({yaw: 0, pitch: p}); // single pole dot
+      } else {
+        const countAtLevel = 12; // 30° yaw spacing
+        for (let i = 0; i < countAtLevel; i++) {
+          const gridYaw = (i * 360) / countAtLevel - 180;
+          gridPositions.push({yaw: gridYaw, pitch: p});
+        }
+      }
+    });
+    
+    // Find nearest grid position
+    let minDist = Infinity;
+    let nearest = {yaw, pitch};
+    
+    for (const pos of gridPositions) {
+      const dYaw = Math.abs(yaw - pos.yaw);
+      const dPitch = Math.abs(pitch - pos.pitch);
+      const dist = Math.sqrt(dYaw * dYaw + dPitch * dPitch);
+      
+      if (dist < minDist) {
+        minDist = dist;
+        nearest = pos;
+      }
+    }
+    
+    // Snap if within 10° of grid position (generous threshold)
+    if (minDist < 10) {
+      console.log(`[snapToGrid] Snapped (${yaw.toFixed(1)}°,${pitch.toFixed(1)}°) → grid (${nearest.yaw.toFixed(1)}°,${nearest.pitch.toFixed(1)}°) [dist=${minDist.toFixed(1)}°]`);
+      return nearest;
+    }
+    
+    console.log(`[snapToGrid] No snap — closest grid ${minDist.toFixed(1)}° away (threshold 10°)`);
+    return {yaw, pitch};
+  }, []);
+
   // Capture is always allowed — stores actual device orientation
   const handleCapture = useCallback(async () => {
     if (!cameraRef.current || isCapturing) return;
@@ -212,15 +255,17 @@ function CaptureScreen({
       const rawPath = result.path.startsWith('file://')
         ? result.path.slice(7)
         : result.path;
-      // Use adjusted yaw (relative to start) to match grid which is also relative
-      console.log(`[capture] Shot taken at yaw=${attitude.yaw.toFixed(1)}° pitch=${attitude.pitch.toFixed(1)}°`);
-      onAddShot(rawPath, attitude.yaw, attitude.pitch);
+      
+      // Snap to nearest grid position to reduce stitching errors
+      const snapped = snapToGrid(attitude.yaw, attitude.pitch);
+      console.log(`[capture] Shot taken at yaw=${attitude.yaw.toFixed(1)}° pitch=${attitude.pitch.toFixed(1)}° → snapped to (${snapped.yaw.toFixed(1)}°, ${snapped.pitch.toFixed(1)}°)`);
+      onAddShot(rawPath, snapped.yaw, snapped.pitch);
     } catch (e: any) {
       Alert.alert('Capture Error', e.message);
     } finally {
       setIsCapturing(false);
     }
-  }, [isCapturing, attitude, shots.length, onAddShot]);
+  }, [isCapturing, attitude, snapToGrid, onAddShot]);
 
   if (!hasPermission) {
     return (

@@ -6,7 +6,7 @@
  * the first yaw sample as an offset so that "front" direction = 0°.
  *
  * Returns the current attitude in degrees:
- *   yaw   — rotation around vertical axis (0° at start, ±180°)
+ *   yaw   — rotation around vertical axis (0° = start direction, ±180°)
  *   pitch — tilt forward/back (0° = horizon, +90° = up, -90° = down)
  *   roll  — tilt left/right
  *   rawYaw — unprocessed yaw from native (for debugging)
