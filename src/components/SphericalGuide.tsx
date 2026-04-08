@@ -7,6 +7,7 @@ import React, {useMemo, useState, useEffect} from 'react';
 import {View, Text, StyleSheet, useWindowDimensions} from 'react-native';
 import type {Attitude} from '../hooks/useAttitude';
 import type {ShotEntry} from '../hooks/usePhotosphere';
+import type {CoverageGrid} from '../hooks/useVideoCapture';
 
 // ── Grid Configuration ────────────────────────────────────────────────────────
 
@@ -142,10 +143,18 @@ function findNearestDot(
 type Props = {
   attitude: Attitude;
   shots: ShotEntry[];
+  coverageGrid?: CoverageGrid[];  // for video mode coverage visualization
   debugMode?: boolean;
+  videoMode?: boolean;  // show coverage grid instead of discrete dots
 };
 
-export default function SphericalGuide({attitude, shots, debugMode = false}: Props) {
+export default function SphericalGuide({
+  attitude,
+  shots,
+  coverageGrid = [],
+  debugMode = false,
+  videoMode = false,
+}: Props) {
   const {width: W, height: H} = useWindowDimensions();
   
   // Reference yaw is now managed by useAttitude hook via resetYawOffset()
@@ -199,6 +208,29 @@ export default function SphericalGuide({attitude, shots, debugMode = false}: Pro
   
   // Project all grid positions to screen
   const projectedDots = useMemo(() => {
+    // In video mode, show coverage grid instead of discrete dots
+    if (videoMode && coverageGrid.length > 0) {
+      return coverageGrid.map((cell, idx) => {
+        const projection = projectToScreen(
+          cell.yaw,
+          cell.pitch,
+          cameraYaw,
+          cameraPitch,
+          W,
+          H,
+          hFov,
+          vFov
+        );
+        
+        return {
+          position: {id: `grid-${idx}`, yaw: cell.yaw, pitch: cell.pitch},
+          ...projection,
+          captured: cell.covered,  // gray out if covered
+        };
+      });
+    }
+    
+    // Photo mode - show discrete dots
     return SPHERE_POSITIONS.map(pos => {
       const projection = projectToScreen(
         pos.yaw,
@@ -217,7 +249,7 @@ export default function SphericalGuide({attitude, shots, debugMode = false}: Pro
         captured: coveredIds.has(pos.id),
       };
     });
-  }, [cameraYaw, cameraPitch, W, H, coveredIds]);
+  }, [cameraYaw, cameraPitch, W, H, coveredIds, videoMode, coverageGrid]);
   
   // Find nearest dot for alignment helper
   const nearest = useMemo(() => {
@@ -254,12 +286,17 @@ export default function SphericalGuide({attitude, shots, debugMode = false}: Pro
         if (!visible) return null;
         
         const isNearest = nearest?.position.id === position.id;
-        const dotSize = isNearest ? 24 : 16;
-        const dotColor = captured 
-          ? 'rgba(0, 255, 0, 0.8)'  // green = captured
-          : isNearest
-          ? 'rgba(255, 255, 0, 0.9)' // yellow = target
-          : 'rgba(255, 255, 255, 0.6)'; // white = uncaptured
+        const dotSize = isNearest ? 24 : (videoMode ? 20 : 16);  // bigger in video mode
+        
+        // In video mode: gray = covered, white = uncovered
+        // In photo mode: green = captured, yellow = target, white = uncaptured
+        const dotColor = videoMode
+          ? (captured ? 'rgba(100, 100, 100, 0.5)' : 'rgba(255, 255, 255, 0.7)')  // video mode
+          : (captured 
+            ? 'rgba(0, 255, 0, 0.8)'  // photo mode captured
+            : isNearest
+            ? 'rgba(255, 255, 0, 0.9)' // photo mode target
+            : 'rgba(255, 255, 255, 0.6)'); // photo mode uncaptured
         
         return (
           <View

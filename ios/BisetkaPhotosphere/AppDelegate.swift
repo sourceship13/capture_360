@@ -37,6 +37,12 @@ class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
   override func sourceURL(for bridge: RCTBridge) -> URL? {
     self.bundleURL()
   }
+  
+  override func extraModules(for bridge: RCTBridge) -> [RCTBridgeModule] {
+    let videoRecorder = RCTVideoRecorderModule()
+    let deviceInfo = RCTNativeDeviceInfoModule()
+    return [videoRecorder, deviceInfo]
+  }
 
   override func bundleURL() -> URL? {
 #if DEBUG

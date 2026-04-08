@@ -34,7 +34,9 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>BisetkaPhotosphere needs camera access to capture photos.</string>
+	<string>BisetkaPhotosphere needs camera access to record video for photosphere creation.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>BisetkaPhotosphere may record audio with video (optional).</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>BisetkaPhotosphere needs photo library access to save panoramas.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

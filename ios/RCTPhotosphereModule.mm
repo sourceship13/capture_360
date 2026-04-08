@@ -105,12 +105,17 @@ RCT_EXPORT_METHOD(composeEquirect:(NSArray *)shots
             // (positive pitch = looking down in device coords, but should be up in world coords)
             //
             // Centre of this photo on canvas:
-            double cx = ((yawDeg + 180.0) / 360.0) * kCanvasW;
+            // Normalize yaw to [-180, 180] range to handle wrap-around correctly
+            double normalizedYaw = yawDeg;
+            while (normalizedYaw > 180.0) normalizedYaw -= 360.0;
+            while (normalizedYaw < -180.0) normalizedYaw += 360.0;
+            
+            double cx = ((normalizedYaw + 180.0) / 360.0) * kCanvasW;
             double cy = ((90.0 - (-pitchDeg)) / 180.0) * kCanvasH;  // negate pitch
 
-            // Extent this photo covers (1.4x scale for ~40% overlap, better coverage)
-            double pw = (hFov / 360.0) * kCanvasW * 1.4;
-            double ph = (vFov / 180.0) * kCanvasH * 1.4;
+            // Extent this photo covers (1.6x scale for good overlap)
+            double pw = (hFov / 360.0) * kCanvasW * 1.6;
+            double ph = (vFov / 180.0) * kCanvasH * 1.6;
 
             CGRect destRect = CGRectMake(cx - pw / 2.0, cy - ph / 2.0, pw, ph);
 

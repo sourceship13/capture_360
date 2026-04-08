@@ -7,3 +7,5 @@
 
 #import <Foundation/Foundation.h>
 #import "OpenCVWrapper.h"
+#import "RCTVideoRecorderModule.h"
+#import "RCTNativeDeviceInfoModule.h"
