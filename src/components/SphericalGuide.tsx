@@ -100,7 +100,7 @@ function projectToScreen(
   const pixelsPerDegreeH = screenW / hFov;
   const pixelsPerDegreeV = screenH / vFov;
   
-  const x = screenW / 2 + deltaYaw * pixelsPerDegreeH;
+  const x = screenW / 2 - deltaYaw * pixelsPerDegreeH;
   const y = screenH / 2 + deltaPitch * pixelsPerDegreeV;
   
   // Calculate angular distance for alignment helper
