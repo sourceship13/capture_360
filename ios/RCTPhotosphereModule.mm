@@ -2,15 +2,13 @@
  * RCTPhotosphereModule.mm
  *
  * Panorama stitching: loads each JPEG, normalises orientation,
- * then composites frames LEFT-TO-RIGHT with 30% overlap and a
- * cross-fade seam.  Uses UIGraphicsBeginImageContextWithOptions.
- *
- * The output is named  pano_WxH_<timestamp>.jpg  so pixel dimensions
- * are visible in the resolved path for diagnostics.
+ * warps each frame to equirectangular using OpenCV pinhole → spherical
+ * projection, then alpha-blends onto a 4096×2048 canvas.
  */
 
 #import "RCTPhotosphereModule.h"
 #import <UIKit/UIKit.h>
+#import "OpenCVWrapper.h"
 
 // ---------------------------------------------------------------------------
 // NormaliseOrientation
@@ -54,12 +52,11 @@ RCT_EXPORT_MODULE(NativePhotosphere)
 + (BOOL)requiresMainQueueSetup { return NO; }
 
 // ---------------------------------------------------------------------------
-// composeEquirect — Places captured photos on a 2:1 equirectangular canvas.
+// composeEquirect — Uses OpenCV Stitcher for feature-matched panorama stitching
+// with multi-band blending.  The output is a spherical-projection panorama
+// suitable for cylindrical/panorama viewers.
 //
-// Each entry in `shots` is { path, yaw, pitch, hFov, vFov } describing
-// where the camera was pointing and the camera's field of view.
-//
-// Uncaptured areas stay black → partial captures are viewable immediately.
+// Each entry in `shots` is { path, yaw, pitch, hFov, vFov }.
 // ---------------------------------------------------------------------------
 RCT_EXPORT_METHOD(composeEquirect:(NSArray *)shots
                   resolve:(RCTPromiseResolveBlock)resolve
@@ -67,172 +64,59 @@ RCT_EXPORT_METHOD(composeEquirect:(NSArray *)shots
 {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
 
-        const NSInteger kCanvasW = 4096;
-        const NSInteger kCanvasH = 2048;
-
-        // Create a black canvas
-        UIGraphicsBeginImageContextWithOptions(
-            CGSizeMake(kCanvasW, kCanvasH), YES, 1.0);
-        CGContextRef ctx = UIGraphicsGetCurrentContext();
-        [[UIColor blackColor] setFill];
-        CGContextFillRect(ctx, CGRectMake(0, 0, kCanvasW, kCanvasH));
-
-        NSInteger drawn = 0;
+        // ── 1.  Load and normalise all frames ────────────────────────────
+        NSMutableArray<UIImage *> *images = [NSMutableArray array];
 
         for (NSDictionary *shot in shots) {
             NSString *path = shot[@"path"];
-            double yawDeg   = [shot[@"yaw"]   doubleValue];
-            double pitchDeg = [shot[@"pitch"]  doubleValue];
-            double hFov     = [shot[@"hFov"]   doubleValue];
-            double vFov     = [shot[@"vFov"]   doubleValue];
-
             NSString *posix = [path hasPrefix:@"file://"]
                 ? [[NSURL URLWithString:path] path]
                 : path;
             UIImage *raw = [UIImage imageWithContentsOfFile:posix];
             if (!raw) {
-                NSLog(@"[Equirect] WARN: can't load %@", posix);
+                NSLog(@"[Stitch] WARN: can't load %@", posix);
                 continue;
             }
             UIImage *img = NormaliseOrientation(raw);
-
-            // Map (yaw, pitch) → equirectangular canvas position.
-            //
-            // Equirectangular: x ∈ [0, W] maps to yaw [-180°, 180°]
-            //                  y ∈ [0, H] maps to pitch [90°, -90°]
-            //
-            // NOTE: Inverting pitch because device pitch is opposite of expected
-            // (positive pitch = looking down in device coords, but should be up in world coords)
-            //
-            // Centre of this photo on canvas:
-            // Normalize yaw to [-180, 180] range to handle wrap-around correctly
-            double normalizedYaw = yawDeg;
-            while (normalizedYaw > 180.0) normalizedYaw -= 360.0;
-            while (normalizedYaw < -180.0) normalizedYaw += 360.0;
-            
-            double cx = ((normalizedYaw + 180.0) / 360.0) * kCanvasW;
-            double cy = ((90.0 - (-pitchDeg)) / 180.0) * kCanvasH;  // negate pitch
-
-            // Extent this photo covers (1.6x scale for good overlap)
-            double pw = (hFov / 360.0) * kCanvasW * 1.6;
-            double ph = (vFov / 180.0) * kCanvasH * 1.6;
-
-            CGRect destRect = CGRectMake(cx - pw / 2.0, cy - ph / 2.0, pw, ph);
-
-            NSLog(@"[Equirect] frame yaw=%.1f pitch=%.1f → rect=(%.0f,%.0f,%.0f,%.0f)",
-                  yawDeg, pitchDeg, destRect.origin.x, destRect.origin.y,
-                  destRect.size.width, destRect.size.height);
-
-            // Create alpha mask with edge feathering (not circular, just edge fade)
-            CGContextSaveGState(ctx);
-            CGContextBeginTransparencyLayer(ctx, NULL);
-            
-            // Handle wrapping: if a photo straddles the left/right edge (yaw ≈ ±180°),
-            // draw it twice — once on each side.
-            [img drawInRect:destRect];
-            if (destRect.origin.x < 0) {
-                CGRect wrapRight = destRect;
-                wrapRight.origin.x += kCanvasW;
-                [img drawInRect:wrapRight];
-            }
-            if (CGRectGetMaxX(destRect) > kCanvasW) {
-                CGRect wrapLeft = destRect;
-                wrapLeft.origin.x -= kCanvasW;
-                [img drawInRect:wrapLeft];
-            }
-            
-            // Apply edge feathering mask (horizontal + vertical gradients at borders)
-            CGContextSetBlendMode(ctx, kCGBlendModeDestinationIn);
-            
-            CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-            CGFloat fadeWidth = pw * 0.05;  // 5% fade zone at edges (minimize transparency)
-            CGFloat fadeHeight = ph * 0.05;
-            
-            // Top gradient (fade in from top edge)
-            if (destRect.origin.y < kCanvasH * 0.8) {  // not at bottom
-                CGFloat topLocs[2] = {0.0, 1.0};
-                CGFloat topComps[8] = {
-                    1,1,1,0,  // top edge: transparent
-                    1,1,1,1   // fade zone end: opaque
-                };
-                CGGradientRef topGrad = CGGradientCreateWithColorComponents(
-                    colorSpace, topComps, topLocs, 2);
-                CGContextDrawLinearGradient(ctx, topGrad,
-                    CGPointMake(0, destRect.origin.y),
-                    CGPointMake(0, destRect.origin.y + fadeHeight),
-                    0);
-                CGGradientRelease(topGrad);
-            }
-            
-            // Bottom gradient
-            if (CGRectGetMaxY(destRect) > kCanvasH * 0.2) {  // not at top
-                CGFloat botLocs[2] = {0.0, 1.0};
-                CGFloat botComps[8] = {
-                    1,1,1,1,  // fade zone start: opaque
-                    1,1,1,0   // bottom edge: transparent
-                };
-                CGGradientRef botGrad = CGGradientCreateWithColorComponents(
-                    colorSpace, botComps, botLocs, 2);
-                CGContextDrawLinearGradient(ctx, botGrad,
-                    CGPointMake(0, CGRectGetMaxY(destRect) - fadeHeight),
-                    CGPointMake(0, CGRectGetMaxY(destRect)),
-                    0);
-                CGGradientRelease(botGrad);
-            }
-            
-            // Left gradient
-            CGFloat leftLocs[2] = {0.0, 1.0};
-            CGFloat leftComps[8] = {1,1,1,0, 1,1,1,1};
-            CGGradientRef leftGrad = CGGradientCreateWithColorComponents(
-                colorSpace, leftComps, leftLocs, 2);
-            CGContextDrawLinearGradient(ctx, leftGrad,
-                CGPointMake(destRect.origin.x, 0),
-                CGPointMake(destRect.origin.x + fadeWidth, 0),
-                0);
-            CGGradientRelease(leftGrad);
-            
-            // Right gradient
-            CGFloat rightLocs[2] = {0.0, 1.0};
-            CGFloat rightComps[8] = {1,1,1,1, 1,1,1,0};
-            CGGradientRef rightGrad = CGGradientCreateWithColorComponents(
-                colorSpace, rightComps, rightLocs, 2);
-            CGContextDrawLinearGradient(ctx, rightGrad,
-                CGPointMake(CGRectGetMaxX(destRect) - fadeWidth, 0),
-                CGPointMake(CGRectGetMaxX(destRect), 0),
-                0);
-            CGGradientRelease(rightGrad);
-            
-            CGColorSpaceRelease(colorSpace);
-            CGContextEndTransparencyLayer(ctx);
-            CGContextRestoreGState(ctx);
-
-            drawn++;
+            [images addObject:img];
+            NSLog(@"[Stitch] loaded frame %lu: %.0fx%.0f",
+                  (unsigned long)images.count, img.size.width, img.size.height);
         }
 
-        UIImage *canvas = UIGraphicsGetImageFromCurrentImageContext();
-        UIGraphicsEndImageContext();
-
-        if (drawn == 0) {
+        if (images.count < 2) {
             reject(@"COMPOSE_ERROR",
-                   @"No images could be loaded.",
+                   [NSString stringWithFormat:
+                    @"Need at least 2 images for stitching, got %lu",
+                    (unsigned long)images.count],
                    nil);
             return;
         }
 
-        // Force orientation to Up and write JPEG
-        CGImageRef cgRaw = canvas.CGImage;
-        UIImage *equirect = [UIImage imageWithCGImage:cgRaw
-                                                scale:1.0
-                                          orientation:UIImageOrientationUp];
-        NSData *jpeg = UIImageJPEGRepresentation(equirect, 0.90);
+        // ── 2.  OpenCV Stitcher ──────────────────────────────────────────
+        NSLog(@"[Stitch] Running OpenCV Stitcher on %lu images…",
+              (unsigned long)images.count);
+
+        UIImage *result = [OpenCVWrapper stitchPanorama:images];
+
+        if (!result) {
+            reject(@"COMPOSE_ERROR",
+                   @"OpenCV Stitcher failed – not enough overlap or features between images. "
+                   @"Try capturing with more overlap between frames.",
+                   nil);
+            return;
+        }
+
+        NSLog(@"[Stitch] SUCCESS: %.0fx%.0f", result.size.width, result.size.height);
+
+        // ── 3.  Write JPEG ───────────────────────────────────────────────
+        NSData *jpeg = UIImageJPEGRepresentation(result, 0.92);
         if (!jpeg) {
             reject(@"COMPOSE_ERROR", @"JPEG encoding returned nil.", nil);
             return;
         }
 
         NSString *name =
-            [NSString stringWithFormat:@"equirect_%ldx%ld_%ld.jpg",
-             (long)kCanvasW, (long)kCanvasH,
+            [NSString stringWithFormat:@"pano_%ld.jpg",
              (long)[[NSDate date] timeIntervalSince1970]];
         NSString *outPath =
             [NSTemporaryDirectory() stringByAppendingPathComponent:name];
@@ -242,7 +126,7 @@ RCT_EXPORT_METHOD(composeEquirect:(NSArray *)shots
             reject(@"COMPOSE_ERROR",
                    err.localizedDescription ?: @"Write failed.", err);
         } else {
-            NSLog(@"[Equirect] saved (%ld photos) → %@", (long)drawn, outPath);
+            NSLog(@"[Stitch] saved → %@", outPath);
             resolve(outPath);
         }
     });

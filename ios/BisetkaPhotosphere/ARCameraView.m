@@ -149,7 +149,8 @@ static inline float CLAMP(float x, float lo, float hi) {
         CGImageRef cgImage = [_ciContext createCGImage:ciImage fromRect:ciImage.extent];
         if (!cgImage) return;
 
-        // Sensor is landscape-right; tag as Right so JPEG EXIF is correct for portrait use
+        // Sensor is landscape-right; tag as Right so NormaliseOrientation
+        // rotates pixels to correct portrait orientation before warping.
         UIImage *image = [UIImage imageWithCGImage:cgImage
                                              scale:1.0
                                        orientation:UIImageOrientationRight];

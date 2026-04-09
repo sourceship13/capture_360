@@ -20,8 +20,9 @@ import ARCameraView, {
   RecordingCompleteEvent,
 } from './src/components/ARCameraView';
 import SphericalGuide from './src/components/SphericalGuide';
-import SphereViewer from './src/components/SphereViewer';
+import PanoramaViewer from './src/components/PanoramaViewer';
 import {useVideoCapture} from './src/hooks/useVideoCapture';
+import {composeEquirect} from './src/modules/NativePhotosphere';
 import VideoRecorder from './src/modules/VideoRecorder';
 
 function App(): React.JSX.Element {
@@ -94,13 +95,28 @@ function App(): React.JSX.Element {
           {
             text: 'Process',
             onPress: async () => {
-              const testPath = frames[0]?.path;
-              if (!testPath) {
+              if (frameCount === 0) {
                 Alert.alert('Error', 'No frames captured');
                 return;
               }
-              setEquirectPath(testPath);
-              setMode('preview');
+              try {
+                // Build shots array with ARKit pose data for equirect compositing
+                const shots = frames.map((f: any) => ({
+                  path: f.path,
+                  yaw: f.yaw,
+                  pitch: f.pitch,
+                  hFov: 43,   // portrait hFov ≈ 2*atan(tan(55°/2)*3/4) ≈ 43°
+                  vFov: 55,   // portrait vFov = landscape hFov
+                }));
+                console.log(`[App] Composing ${shots.length} frames...`);
+                const stitchedPath = await composeEquirect(shots);
+                console.log(`[App] Composed: ${stitchedPath}`);
+                setEquirectPath(stitchedPath);
+                setMode('preview');
+              } catch (err) {
+                console.error('[App] Compose error:', err);
+                Alert.alert('Error', String(err));
+              }
             },
           },
         ],
@@ -130,7 +146,7 @@ function App(): React.JSX.Element {
   if (mode === 'preview' && equirectPath) {
     return (
       <SafeAreaView style={styles.container}>
-        <SphereViewer imagePath={equirectPath} />
+        <PanoramaViewer imagePath={equirectPath} />
         
         <View style={styles.bottomBar}>
           <TouchableOpacity

@@ -19,6 +19,10 @@ NS_ASSUME_NONNULL_BEGIN
                  canvasSize:(CGSize)canvasSize
                  cameraHFOV:(double)hfovDegrees;
 
+/// Feature-matching panorama stitch using OpenCV Stitcher (PANORAMA mode).
+/// Returns nil if stitching fails (not enough overlap/features).
++ (nullable UIImage *)stitchPanorama:(NSArray<UIImage *> *)images;
+
 @end
 
 NS_ASSUME_NONNULL_END
