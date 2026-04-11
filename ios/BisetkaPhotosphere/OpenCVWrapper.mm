@@ -423,7 +423,7 @@ using namespace cv;
         double Fx = fd.R[6], Fy = fd.R[7], Fz = fd.R[8];
 
         // Bounding box
-        double lonCenter = atan2(Fx, -Fz);
+        double lonCenter = atan2(Fx, Fz);
         double latCenter = asin(fmax(-1, fmin(1, Fy)));
         double vfovRad = 2.0 * atan(tan(hfovRad / 2.0) * (fd.imgH / fd.imgW));
         double halfH = hfovDegrees / 2.0 + 10.0;
@@ -445,7 +445,7 @@ using namespace cv;
                 double lon = ((double)canvasX / width_) * 2.0 * M_PI - M_PI;
                 double lat = M_PI / 2.0 - ((double)canvasY / height_) * M_PI;
                 double cosLat = cos(lat);
-                double dx = cosLat*sin(lon), dy = sin(lat), dz = -cosLat*cos(lon);
+                double dx = cosLat*sin(lon), dy = sin(lat), dz = cosLat*cos(lon);
 
                 double xc = Rx*dx + Ry*dy + Rz*dz;
                 double yc = Ux*dx + Uy*dy + Uz*dz;
@@ -509,50 +509,148 @@ using namespace cv;
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // STEP 4: Smooth distance-weighted blending
+    // STEP 4: Multi-band blending (Laplacian pyramid)
     //
-    // Each pixel is a weighted average of all contributing frames.
-    // Weight = (edgeDist / maxEdgeDist)^4  — frames contribute most
-    // at their center and fade smoothly toward edges, producing
-    // seamless transitions in overlap zones.
+    // Low frequencies (global brightness) are blended smoothly across
+    // large distances, while high frequencies (edges, detail) come
+    // primarily from the dominant frame (highest edge-distance weight).
+    // This eliminates BOTH ghosting AND visible seam lines — the
+    // industry standard for panorama stitching.
     // ══════════════════════════════════════════════════════════════════
+    const int NUM_BANDS = 5;  // pyramid levels
 
-    // Pre-compute max edge distance per frame for normalization
+    // Pre-compute per-frame weight masks (edge distance, power-2 normalized)
     std::vector<float> maxEdgeDist(numFrames);
     for (NSUInteger ki = 0; ki < numFrames; ki++) {
         maxEdgeDist[ki] = (float)(MIN(frames[ki].imgW, frames[ki].imgH) * 0.5);
         if (maxEdgeDist[ki] < 1.0f) maxEdgeDist[ki] = 1.0f;
     }
 
+    // Pad canvas to be divisible by 2^(NUM_BANDS-1) for clean pyrDown
+    int factor = 1 << (NUM_BANDS - 1);  // 16
+    int padW = width_, padH = height_;
+    if (padW % factor != 0) padW = ((padW / factor) + 1) * factor;
+    if (padH % factor != 0) padH = ((padH / factor) + 1) * factor;
+
+    // Fill uncovered pixels with global mean to prevent black-edge
+    // artifacts in pyramid boundary smoothing
+    Vec3b fillColor((uchar)globalChannelMean[0], (uchar)globalChannelMean[1],
+                    (uchar)globalChannelMean[2]);
+    for (NSUInteger ki = 0; ki < numFrames; ki++) {
+        for (int r = 0; r < height_; r++)
+            for (int c = 0; c < width_; c++)
+                if (warpedWeights[ki].at<float>(r, c) <= 0)
+                    warpedFrames[ki].at<Vec3b>(r, c) = fillColor;
+    }
+
+    // Accumulator pyramids: blended Laplacian + weight sums per level
+    std::vector<Mat> accumLap(NUM_BANDS);
+    std::vector<Mat> accumW(NUM_BANDS);
+    {
+        int w = padW, h = padH;
+        for (int l = 0; l < NUM_BANDS; l++) {
+            accumLap[l] = Mat::zeros(h, w, CV_32FC3);
+            accumW[l]   = Mat::zeros(h, w, CV_32FC1);
+            w = (w + 1) / 2;
+            h = (h + 1) / 2;
+        }
+    }
+
+    for (NSUInteger ki = 0; ki < numFrames; ki++) {
+        // Convert warped frame to float, pad if needed
+        Mat imgF;
+        warpedFrames[ki].convertTo(imgF, CV_32FC3);
+        if (padH != height_ || padW != width_)
+            copyMakeBorder(imgF, imgF, 0, padH - height_, 0, padW - width_,
+                           BORDER_REFLECT);
+
+        // Build weight mask (power-2 normalized edge distance)
+        Mat wMask = Mat::zeros(height_, width_, CV_32FC1);
+        for (int r = 0; r < height_; r++)
+            for (int c = 0; c < width_; c++) {
+                float ed = warpedWeights[ki].at<float>(r, c);
+                if (ed > 0) {
+                    float norm = ed / maxEdgeDist[ki];
+                    if (norm > 1.0f) norm = 1.0f;
+                    wMask.at<float>(r, c) = norm * norm;
+                }
+            }
+        if (padH != height_ || padW != width_)
+            copyMakeBorder(wMask, wMask, 0, padH - height_, 0, padW - width_,
+                           BORDER_CONSTANT, Scalar(0));
+
+        // Build Gaussian pyramid of image
+        std::vector<Mat> gaussImg(NUM_BANDS);
+        gaussImg[0] = imgF;
+        for (int l = 1; l < NUM_BANDS; l++)
+            pyrDown(gaussImg[l - 1], gaussImg[l]);
+
+        // Build Laplacian pyramid of image
+        std::vector<Mat> lapImg(NUM_BANDS);
+        for (int l = 0; l < NUM_BANDS - 1; l++) {
+            Mat up;
+            pyrUp(gaussImg[l + 1], up, gaussImg[l].size());
+            lapImg[l] = gaussImg[l] - up;
+        }
+        lapImg[NUM_BANDS - 1] = gaussImg[NUM_BANDS - 1].clone();
+
+        // Build Gaussian pyramid of weight mask
+        std::vector<Mat> gaussW(NUM_BANDS);
+        gaussW[0] = wMask;
+        for (int l = 1; l < NUM_BANDS; l++)
+            pyrDown(gaussW[l - 1], gaussW[l]);
+
+        // Accumulate weighted Laplacian at each level
+        for (int l = 0; l < NUM_BANDS; l++) {
+            // Expand weight to 3-channel for element-wise multiply
+            Mat w3;
+            std::vector<Mat> wch = {gaussW[l], gaussW[l], gaussW[l]};
+            merge(wch, w3);
+            accumLap[l] += lapImg[l].mul(w3);
+            accumW[l]   += gaussW[l];
+        }
+
+        NSLog(@"[MultiBand] Processed frame %lu/%lu",
+              (unsigned long)(ki + 1), (unsigned long)numFrames);
+    }
+
+    // Normalize each pyramid level by total weight
+    for (int l = 0; l < NUM_BANDS; l++) {
+        for (int r = 0; r < accumLap[l].rows; r++)
+            for (int c = 0; c < accumLap[l].cols; c++) {
+                float w = accumW[l].at<float>(r, c);
+                if (w > 1e-6f) {
+                    Vec3f &px = accumLap[l].at<Vec3f>(r, c);
+                    px[0] /= w;
+                    px[1] /= w;
+                    px[2] /= w;
+                }
+            }
+    }
+
+    // Collapse Laplacian pyramid to reconstruct blended image
+    Mat collapsed = accumLap[NUM_BANDS - 1].clone();
+    for (int l = NUM_BANDS - 2; l >= 0; l--) {
+        Mat up;
+        pyrUp(collapsed, up, accumLap[l].size());
+        collapsed = up + accumLap[l];
+    }
+
+    // Crop to original size and convert to 8-bit RGBA
+    Mat cropped = collapsed(cv::Rect(0, 0, width_, height_));
+    Mat finalW  = accumW[0](cv::Rect(0, 0, width_, height_));
     Mat result(height_, width_, CV_8UC4);
     for (int r = 0; r < height_; r++)
         for (int c = 0; c < width_; c++) {
-            float totalW = 0;
-            float accR = 0, accG = 0, accB = 0;
-            for (NSUInteger ki = 0; ki < numFrames; ki++) {
-                float edgeDist = warpedWeights[ki].at<float>(r, c);
-                if (edgeDist > 0) {
-                    // Normalize to [0,1] and raise to 4th power
-                    // This makes frames dominate strongly at center,
-                    // fade smoothly toward edges
-                    float norm = edgeDist / maxEdgeDist[ki];
-                    if (norm > 1.0f) norm = 1.0f;
-                    float w = norm * norm * norm * norm;  // power-4
-
-                    Vec3b px = warpedFrames[ki].at<Vec3b>(r, c);
-                    accR += px[0] * w;
-                    accG += px[1] * w;
-                    accB += px[2] * w;
-                    totalW += w;
-                }
-            }
-            if (totalW > 0)
+            if (finalW.at<float>(r, c) > 1e-6f) {
+                Vec3f px = cropped.at<Vec3f>(r, c);
                 result.at<Vec4b>(r, c) = Vec4b(
-                    (uchar)(accR / totalW),
-                    (uchar)(accG / totalW),
-                    (uchar)(accB / totalW), 255);
-            else
+                    (uchar)fmax(0, fmin(255, px[0] + 0.5f)),
+                    (uchar)fmax(0, fmin(255, px[1] + 0.5f)),
+                    (uchar)fmax(0, fmin(255, px[2] + 0.5f)), 255);
+            } else {
                 result.at<Vec4b>(r, c) = Vec4b(0, 0, 0, 0);
+            }
         }
 
     NSLog(@"[Equirect Fallback] Done: %dx%d (%lu frames)", width_, height_, (unsigned long)numFrames);
