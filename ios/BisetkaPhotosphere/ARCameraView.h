@@ -15,4 +15,6 @@
 @property (nonatomic, copy) RCTDirectEventBlock onOrientationUpdate;
 @property (nonatomic, copy) RCTDirectEventBlock onRecordingComplete;
 
+- (void)captureFrame;
+
 @end

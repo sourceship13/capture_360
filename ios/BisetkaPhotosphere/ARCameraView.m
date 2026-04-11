@@ -162,73 +162,93 @@ static inline float CLAMP(float x, float lo, float hi) {
     if (now - _lastOrientationSend >= 0.1) {
         _lastOrientationSend = now;
         if (self.onOrientationUpdate) {
+            NSUInteger capturedCount;
+            @synchronized (_capturedFrames) {
+                capturedCount = _capturedFrames.count;
+            }
             self.onOrientationUpdate(@{
                 @"yaw":   @(yaw),
                 @"pitch": @(pitch),
                 @"roll":  @(roll),
+                @"capturedCount": @(capturedCount),
                 @"timestamp": @(now),
             });
         }
     }
+}
 
-    // --- Capture frames at ~1 fps while recording ---
-    if (_isRecording && (now - _lastFrameCapture >= 1.0)) {
-        _lastFrameCapture = now;
+#pragma mark - Manual frame capture
 
-        CVPixelBufferRef pixelBuffer = frame.capturedImage;
-        if (!pixelBuffer) return;
+- (void)captureFrame {
+    ARFrame *frame = _arView.session.currentFrame;
+    if (!frame) return;
 
-        CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
-        CIImage *ciImage = [CIImage imageWithCVPixelBuffer:pixelBuffer];
-        CGImageRef cgImage = [_ciContext createCGImage:ciImage fromRect:ciImage.extent];
-        CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
-        if (!cgImage) return;
+    simd_float4x4 t = frame.camera.transform;
+    simd_float3 forward = simd_make_float3(-t.columns[2].x,
+                                           -t.columns[2].y,
+                                           -t.columns[2].z);
+    float yaw   = atan2f(forward.x, forward.z) * 180.0f / M_PI;
+    float pitch  = asinf(CLAMP(-forward.y, -1.0f, 1.0f)) * 180.0f / M_PI;
+    float roll = atan2f(t.columns[1].x, t.columns[1].y) * 180.0f / M_PI;
 
-        UIImage *image = [UIImage imageWithCGImage:cgImage
-                                             scale:1.0
-                                       orientation:UIImageOrientationUp];
-        CGImageRelease(cgImage);
+    CVPixelBufferRef pixelBuffer = frame.capturedImage;
+    if (!pixelBuffer) return;
 
-        // Extract actual HFOV from ARKit camera intrinsics
-        simd_float3x3 K = frame.camera.intrinsics;
-        CGSize res = frame.camera.imageResolution;
-        float fx_intrinsic = K.columns[0][0];
-        float hFovDeg = 2.0f * atan2f((float)res.width, 2.0f * fx_intrinsic) * 180.0f / M_PI;
+    CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
+    CIImage *ciImage = [CIImage imageWithCVPixelBuffer:pixelBuffer];
+    CGImageRef cgImage = [_ciContext createCGImage:ciImage fromRect:ciImage.extent];
+    CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
+    if (!cgImage) return;
 
-        NSArray *rotMatrix = @[
-            @(t.columns[0][0]), @(t.columns[0][1]), @(t.columns[0][2]),
-            @(t.columns[1][0]), @(t.columns[1][1]), @(t.columns[1][2]),
-            @(-t.columns[2][0]), @(-t.columns[2][1]), @(-t.columns[2][2])
-        ];
+    UIImage *image = [UIImage imageWithCGImage:cgImage
+                                         scale:1.0
+                                   orientation:UIImageOrientationUp];
+    CGImageRelease(cgImage);
 
-        int idx;
-        @synchronized (_capturedFrames) {
-            idx = (int)_capturedFrames.count;
-        }
+    simd_float3x3 K = frame.camera.intrinsics;
+    CGSize res = frame.camera.imageResolution;
+    float fx_intrinsic = K.columns[0][0];
+    float hFovDeg = 2.0f * atan2f((float)res.width, 2.0f * fx_intrinsic) * 180.0f / M_PI;
 
-        NSString *framePath = [_sessionDir stringByAppendingPathComponent:
-                               [NSString stringWithFormat:@"frame_%04d.jpg", idx]];
-        NSData *jpegData = UIImageJPEGRepresentation(image, 0.95);
-        [jpegData writeToFile:framePath atomically:YES];
+    NSArray *rotMatrix = @[
+        @(t.columns[0][0]), @(t.columns[0][1]), @(t.columns[0][2]),
+        @(t.columns[1][0]), @(t.columns[1][1]), @(t.columns[1][2]),
+        @(-t.columns[2][0]), @(-t.columns[2][1]), @(-t.columns[2][2])
+    ];
 
-        NSDictionary *entry = @{
-            @"path":      framePath,
-            @"yaw":       @(yaw),
-            @"pitch":     @(pitch),
-            @"roll":      @(roll),
-            @"hFov":      @(hFovDeg),
-            @"rotationMatrix": rotMatrix,
-            @"timestamp": @(now),
-        };
-
-        @synchronized (_capturedFrames) {
-            [_capturedFrames addObject:entry];
-        }
-
-        NSLog(@"[ARCameraView] Frame %d: yaw=%.1f° pitch=%.1f° hFov=%.1f° (%dx%d fx=%.0f)",
-              idx, yaw, pitch, hFovDeg,
-              (int)res.width, (int)res.height, fx_intrinsic);
+    int idx;
+    @synchronized (_capturedFrames) {
+        idx = (int)_capturedFrames.count;
     }
+
+    NSString *framePath = [_sessionDir stringByAppendingPathComponent:
+                           [NSString stringWithFormat:@"frame_%04d.jpg", idx]];
+    NSData *jpegData = UIImageJPEGRepresentation(image, 0.95);
+    [jpegData writeToFile:framePath atomically:YES];
+
+    NSDictionary *entry = @{
+        @"path":      framePath,
+        @"yaw":       @(yaw),
+        @"pitch":     @(pitch),
+        @"roll":      @(roll),
+        @"hFov":      @(hFovDeg),
+        @"rotationMatrix": rotMatrix,
+        @"timestamp": @(frame.timestamp),
+    };
+
+    @synchronized (_capturedFrames) {
+        [_capturedFrames addObject:entry];
+    }
+
+    // Notify JS of capture
+    if (self.onOrientationUpdate) {
+        self.onOrientationUpdate(@{
+            @"yaw": @(yaw), @"pitch": @(pitch), @"roll": @(roll),
+            @"capturedCount": @(idx + 1), @"timestamp": @(frame.timestamp),
+        });
+    }
+
+    NSLog(@"[ARCameraView] Manual capture %d: yaw=%.1f° pitch=%.1f° hFov=%.1f°", idx, yaw, pitch, hFovDeg);
 }
 
 @end

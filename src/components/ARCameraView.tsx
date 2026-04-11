@@ -3,14 +3,21 @@
  * Shows live AR camera preview and captures frames with ARKit pose data.
  */
 
-import React from 'react';
-import {requireNativeComponent, StyleProp, ViewStyle} from 'react-native';
+import React, {forwardRef, useImperativeHandle, useRef} from 'react';
+import {
+  requireNativeComponent,
+  StyleProp,
+  ViewStyle,
+  NativeModules,
+  findNodeHandle,
+} from 'react-native';
 
 export interface OrientationEvent {
   nativeEvent: {
     yaw: number;
     pitch: number;
     roll: number;
+    capturedCount?: number;
     timestamp: number;
   };
 }
@@ -30,6 +37,10 @@ export interface RecordingCompleteEvent {
   };
 }
 
+export interface ARCameraViewHandle {
+  captureFrame: () => void;
+}
+
 interface NativeProps {
   style?: StyleProp<ViewStyle>;
   isRecording?: boolean;
@@ -40,4 +51,21 @@ interface NativeProps {
 const NativeARCameraView =
   requireNativeComponent<NativeProps>('ARCameraView');
 
-export default NativeARCameraView;
+const ARCameraViewWrapper = forwardRef<ARCameraViewHandle, NativeProps>(
+  (props, ref) => {
+    const nativeRef = useRef<any>(null);
+
+    useImperativeHandle(ref, () => ({
+      captureFrame: () => {
+        const tag = findNodeHandle(nativeRef.current);
+        if (tag != null) {
+          NativeModules.ARCameraView.captureFrame(tag);
+        }
+      },
+    }));
+
+    return <NativeARCameraView ref={nativeRef} {...props} />;
+  },
+);
+
+export default ARCameraViewWrapper;

@@ -1,8 +1,8 @@
 /**
- * BisetkaPhotosphere - Video-based capture with ARKit tracking
+ * BisetkaPhotosphere - Manual tap-to-capture with ARKit tracking
  * 
  * Uses a native ARSCNView for live camera + ARKit world tracking.
- * Frames captured at ~2fps with synchronized camera pose for stitching.
+ * User taps to capture each frame when phone is stationary — no motion blur.
  */
 
 import React, {useCallback, useEffect, useRef, useState} from 'react';
@@ -22,6 +22,7 @@ import {
 import ARCameraView, {
   OrientationEvent,
   RecordingCompleteEvent,
+  ARCameraViewHandle,
 } from './src/components/ARCameraView';
 import SphericalGuide from './src/components/SphericalGuide';
 import SphereViewer from './src/components/SphereViewer';
@@ -37,7 +38,10 @@ function App(): React.JSX.Element {
   const [progressPhase, setProgressPhase] = useState('');
   const [progressCurrent, setProgressCurrent] = useState(0);
   const [progressTotal, setProgressTotal] = useState(0);
+  const [capturedCount, setCapturedCount] = useState(0);
+  const prevCapturedCountRef = useRef(0);
 
+  const cameraRef = useRef<ARCameraViewHandle>(null);
   const videoCapture = useVideoCapture();
 
   // Latest ARKit orientation — used by SphericalGuide
@@ -74,7 +78,12 @@ function App(): React.JSX.Element {
   // ARKit orientation events → update attitude + coverage grid
   const handleOrientationUpdate = useCallback(
     (event: OrientationEvent) => {
-      const {yaw: rawYaw, pitch, roll} = event.nativeEvent;
+      const {yaw: rawYaw, pitch, roll, capturedCount: count} = event.nativeEvent;
+
+      // Track captured count from native side
+      if (count != null) {
+        setCapturedCount(count);
+      }
 
       // Auto-calibrate: first orientation becomes 0°
       if (yawOffsetRef.current === null) {
@@ -93,8 +102,11 @@ function App(): React.JSX.Element {
         rawYaw,
       }));
 
-      // Also feed coverage grid
-      videoCapture.trackFrame(yaw, pitch, roll);
+      // Only mark coverage when a new frame was actually captured
+      if (count != null && count > prevCapturedCountRef.current) {
+        prevCapturedCountRef.current = count;
+        videoCapture.trackFrame(yaw, pitch, roll);
+      }
     },
     [videoCapture],
   );
@@ -150,14 +162,22 @@ function App(): React.JSX.Element {
     [videoCapture],
   );
 
-  // Toggle recording
-  const handleCapturePress = useCallback(() => {
+  // Toggle recording session (start/stop)
+  const handleSessionToggle = useCallback(() => {
     if (videoCapture.isRecording) {
       videoCapture.stopRecording();
     } else {
+      setCapturedCount(0);
+      prevCapturedCountRef.current = 0;
       videoCapture.startRecording();
     }
   }, [videoCapture]);
+
+  // Manual tap-to-capture a single frame
+  const handleCaptureFrame = useCallback(() => {
+    if (!videoCapture.isRecording) return;
+    cameraRef.current?.captureFrame();
+  }, [videoCapture.isRecording]);
   
   if (!hasPermission) {
     return (
@@ -235,6 +255,7 @@ function App(): React.JSX.Element {
       </Modal>
 
       <ARCameraView
+        ref={cameraRef}
         style={StyleSheet.absoluteFill}
         isRecording={videoCapture.isRecording}
         onOrientationUpdate={handleOrientationUpdate}
@@ -258,8 +279,8 @@ function App(): React.JSX.Element {
           {videoCapture.isRecording && <Text style={styles.recordingDot}>●</Text>}
           <Text style={styles.hudText}>
             {videoCapture.isRecording 
-              ? `${videoCapture.duration.toFixed(1)}s` 
-              : 'Ready'}
+              ? `${capturedCount} frames captured` 
+              : 'Ready — tap Start'}
           </Text>
         </View>
         
@@ -278,19 +299,34 @@ function App(): React.JSX.Element {
         </View>
       </View>
       
-      {/* Capture button */}
+      {/* Bottom controls */}
       <View style={styles.bottomBar}>
-        <TouchableOpacity
-          style={[
-            styles.captureButton,
-            videoCapture.isRecording && styles.captureButtonRecording
-          ]}
-          onPress={handleCapturePress}>
-          <View style={[
-            styles.captureButtonInner,
-            videoCapture.isRecording && styles.captureButtonInnerRecording
-          ]} />
-        </TouchableOpacity>
+        {!videoCapture.isRecording ? (
+          <TouchableOpacity
+            style={styles.startButton}
+            onPress={handleSessionToggle}>
+            <Text style={styles.startButtonText}>Start Session</Text>
+          </TouchableOpacity>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={styles.doneButton}
+              onPress={handleSessionToggle}>
+              <Text style={styles.buttonText}>Done</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.captureButton}
+              onPress={handleCaptureFrame}
+              activeOpacity={0.6}>
+              <View style={styles.captureButtonInner} />
+            </TouchableOpacity>
+
+            <View style={styles.frameCountBadge}>
+              <Text style={styles.frameCountText}>{capturedCount}</Text>
+            </View>
+          </>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -373,18 +409,43 @@ const styles = StyleSheet.create({
     borderWidth: 4,
     borderColor: '#fff',
   },
-  captureButtonRecording: {
-    borderColor: '#f00',
-  },
   captureButtonInner: {
     width: 60,
     height: 60,
     borderRadius: 30,
     backgroundColor: '#fff',
   },
-  captureButtonInnerRecording: {
-    borderRadius: 6,
-    backgroundColor: '#f00',
+  startButton: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    borderRadius: 30,
+  },
+  startButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  doneButton: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 24,
+    position: 'absolute',
+    left: 30,
+  },
+  frameCountBadge: {
+    position: 'absolute',
+    right: 30,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 16,
+  },
+  frameCountText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
   },
   buttonPrimary: {
     backgroundColor: '#007AFF',
