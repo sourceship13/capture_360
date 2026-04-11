@@ -39,6 +39,7 @@ function App(): React.JSX.Element {
   const [progressCurrent, setProgressCurrent] = useState(0);
   const [progressTotal, setProgressTotal] = useState(0);
   const [capturedCount, setCapturedCount] = useState(0);
+  const [driftWarning, setDriftWarning] = useState(false);
   const prevCapturedCountRef = useRef(0);
 
   const cameraRef = useRef<ARCameraViewHandle>(null);
@@ -84,6 +85,10 @@ function App(): React.JSX.Element {
       if (count != null) {
         setCapturedCount(count);
       }
+
+      // Drift detection from native
+      const nativeDrift = (event.nativeEvent as any).driftWarning;
+      setDriftWarning(!!nativeDrift);
 
       // Auto-calibrate: first orientation becomes 0°
       if (yawOffsetRef.current === null) {
@@ -303,6 +308,12 @@ function App(): React.JSX.Element {
             />
           </View>
         </View>
+
+        {driftWarning && (
+          <View style={styles.driftBanner}>
+            <Text style={styles.driftBannerText}>⚠️ Move back to center!</Text>
+          </View>
+        )}
       </View>
       
       {/* Bottom controls */}
@@ -452,6 +463,19 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '700',
+  },
+  driftBanner: {
+    backgroundColor: 'rgba(220,160,0,0.9)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    alignSelf: 'center',
+  },
+  driftBannerText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   buttonPrimary: {
     backgroundColor: '#007AFF',

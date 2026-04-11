@@ -399,166 +399,13 @@ using namespace cv;
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // STEP 1: Pairwise rotation refinement
-    //
-    // For each pair of frames with overlapping FOV, match ORB features
-    // and compute a homography. For pure-rotation cameras:
-    //   H = K2 * R_2to1 * K1^-1
-    // We extract R_2to1 and compare with the IMU-predicted relative
-    // rotation. The difference is applied as a correction.
-    //
-    // Frame 0 is the anchor. Each subsequent frame's rotation is
-    // refined relative to its best-overlapping already-refined frame.
+    // STEP 1: ORB rotation refinement — DISABLED
+    // ARKit rotation matrices are accurate enough. ORB refinement
+    // was introducing errors that caused object duplication in the
+    // final composite. Using raw ARKit rotations directly.
     // ══════════════════════════════════════════════════════════════════
-
-    // ORB feature matching + homography-based rotation correction.
-    // For pure-rotation cameras: H = K_j * R_j2i * K_i^-1
-    // We extract R_j2i from H and compare with the IMU-predicted
-    // relative rotation. The difference corrects the ARKit error.
-
-    std::vector<bool> refined(numFrames, false);
-    refined[0] = true;  // Frame 0 is anchor
-    NSLog(@"[RotRefine] Frame 0: anchor (unchanged)");
-
-    // Pre-compute greyscale + ORB keypoints for all frames
-    auto orb = cv::ORB::create(2000);
-    std::vector<std::vector<KeyPoint>> allKps(numFrames);
-    std::vector<Mat> allDescs(numFrames);
-    for (NSUInteger ki = 0; ki < numFrames; ki++) {
-        Mat grey;
-        cvtColor(frames[ki].src, grey, COLOR_BGR2GRAY);
-        orb->detectAndCompute(grey, noArray(), allKps[ki], allDescs[ki]);
-        NSLog(@"[RotRefine] Frame %lu: %lu keypoints", (unsigned long)ki,
-              (unsigned long)allKps[ki].size());
-    }
-
-    BFMatcher matcher(NORM_HAMMING, true);  // cross-check
-
-    // Helper: build 3×3 intrinsic matrix from FrameData
-    auto makeK = [](const FrameData &fd) -> Mat {
-        Mat K = Mat::eye(3, 3, CV_64F);
-        K.at<double>(0,0) = fd.fx;
-        K.at<double>(1,1) = fd.fy;
-        K.at<double>(0,2) = fd.cx;
-        K.at<double>(1,2) = fd.cy;
-        return K;
-    };
-
-    // Helper: build 3×3 rotation matrix (col-major: right, up, forward)
-    // R[0..2]=right, R[3..5]=up, R[6..8]=forward
-    // As a matrix: columns = right, up, forward
-    auto makeR = [](const double R[9]) -> Mat {
-        Mat m(3, 3, CV_64F);
-        m.at<double>(0,0) = R[0]; m.at<double>(1,0) = R[1]; m.at<double>(2,0) = R[2]; // right col
-        m.at<double>(0,1) = R[3]; m.at<double>(1,1) = R[4]; m.at<double>(2,1) = R[5]; // up col
-        m.at<double>(0,2) = R[6]; m.at<double>(1,2) = R[7]; m.at<double>(2,2) = R[8]; // fwd col
-        return m;
-    };
-
-    // Try to refine each unrefined frame against the best overlapping refined frame
-    int maxPasses = (int)numFrames;
-    for (int pass = 0; pass < maxPasses; pass++) {
-        bool anyRefined = false;
-        for (NSUInteger ki = 0; ki < numFrames; ki++) {
-            if (refined[ki]) continue;
-            if (allDescs[ki].empty()) continue;
-
-            // Find best refined neighbor (highest forward-vector overlap)
-            double bestDot = -1;
-            NSUInteger bestRef = 0;
-            for (NSUInteger ri = 0; ri < numFrames; ri++) {
-                if (!refined[ri]) continue;
-                double dot = frames[ki].R[6]*frames[ri].R[6]
-                           + frames[ki].R[7]*frames[ri].R[7]
-                           + frames[ki].R[8]*frames[ri].R[8];
-                if (dot > bestDot) { bestDot = dot; bestRef = ri; }
-            }
-            if (bestDot < 0.3) continue;  // <~73° apart, not enough overlap
-            if (allDescs[bestRef].empty()) continue;
-
-            // Match features
-            std::vector<DMatch> matches;
-            matcher.match(allDescs[ki], allDescs[bestRef], matches);
-            if (matches.size() < 20) {
-                NSLog(@"[RotRefine] Frame %lu: only %lu matches with frame %lu, skipping",
-                      (unsigned long)ki, (unsigned long)matches.size(), (unsigned long)bestRef);
-                continue;
-            }
-
-            // Sort by distance, keep best 60%
-            std::sort(matches.begin(), matches.end(),
-                      [](const DMatch &a, const DMatch &b) { return a.distance < b.distance; });
-            size_t keep = MAX(20, (size_t)(matches.size() * 0.6));
-            matches.resize(keep);
-
-            // Extract matched points
-            std::vector<Point2f> pts1(keep), pts2(keep);
-            for (size_t m = 0; m < keep; m++) {
-                pts1[m] = allKps[ki][matches[m].queryIdx].pt;
-                pts2[m] = allKps[bestRef][matches[m].trainIdx].pt;
-            }
-
-            // Compute homography (RANSAC)
-            Mat inlierMask;
-            Mat H = findHomography(pts1, pts2, RANSAC, 3.0, inlierMask);
-            if (H.empty()) {
-                NSLog(@"[RotRefine] Frame %lu: homography failed", (unsigned long)ki);
-                continue;
-            }
-
-            int inliers = countNonZero(inlierMask);
-            if (inliers < 15) {
-                NSLog(@"[RotRefine] Frame %lu: only %d inliers, skipping", (unsigned long)ki, inliers);
-                continue;
-            }
-
-            // Extract rotation from homography:
-            // H = K_ref * R_ki2ref * K_ki^-1
-            // R_ki2ref = K_ref^-1 * H * K_ki
-            Mat Kki  = makeK(frames[ki]);
-            Mat Kref = makeK(frames[bestRef]);
-            Mat R_ki2ref_cv = Kref.inv() * H * Kki;
-
-            // Enforce orthogonality via SVD: R = U * V^T
-            Mat W, U, Vt;
-            SVD::compute(R_ki2ref_cv, W, U, Vt);
-            Mat R_ki2ref = U * Vt;
-            if (determinant(R_ki2ref) < 0) R_ki2ref = -R_ki2ref;
-
-            // The refined world rotation for frame ki:
-            // R_ref_world = makeR(frames[bestRef].R)  (already refined)
-            // R_ki2ref takes ki's camera-local to ref's camera-local
-            // R_ki_world = R_ref_world * R_ki2ref^-1
-            //            = R_ref_world * R_ki2ref^T  (since R is orthogonal)
-            Mat Rref = makeR(frames[bestRef].R);
-            Mat Rki_new = Rref * R_ki2ref.t();
-
-            // Extract back to our R[9] format: columns = right, up, forward
-            frames[ki].R[0] = Rki_new.at<double>(0,0);
-            frames[ki].R[1] = Rki_new.at<double>(1,0);
-            frames[ki].R[2] = Rki_new.at<double>(2,0);
-            frames[ki].R[3] = Rki_new.at<double>(0,1);
-            frames[ki].R[4] = Rki_new.at<double>(1,1);
-            frames[ki].R[5] = Rki_new.at<double>(2,1);
-            frames[ki].R[6] = Rki_new.at<double>(0,2);
-            frames[ki].R[7] = Rki_new.at<double>(1,2);
-            frames[ki].R[8] = Rki_new.at<double>(2,2);
-
-            refined[ki] = true;
-            anyRefined = true;
-            NSLog(@"[RotRefine] Frame %lu: refined vs frame %lu (%d inliers, dot=%.2f)",
-                  (unsigned long)ki, (unsigned long)bestRef, inliers, bestDot);
-        }
-        if (!anyRefined) break;
-    }
-
-    // Mark any unrefined frames as-is (ARKit rotation)
-    for (NSUInteger ki = 0; ki < numFrames; ki++) {
-        if (!refined[ki]) {
-            refined[ki] = true;
-            NSLog(@"[RotRefine] Frame %lu: no good matches, using ARKit rotation", (unsigned long)ki);
-        }
-    }
+    NSLog(@"[RotRefine] Skipped — using raw ARKit rotations for all %lu frames",
+          (unsigned long)numFrames);
 
     // ══════════════════════════════════════════════════════════════════
     // STEP 2: Warp each frame with corrected rotations
@@ -584,6 +431,9 @@ using namespace cv;
             cv::resize(src, scaled, cv::Size(), s, s, cv::INTER_AREA);
             src = scaled;
         }
+        cv::flip(src, src, 1);  // 1 = horizontal flip
+        cv::flip(src, src, 0);  // vertical flip (add this line)
+
 
         double Rx = fd.R[0], Ry = fd.R[1], Rz = fd.R[2];
         double Ux = fd.R[3], Uy = fd.R[4], Uz = fd.R[5];
@@ -594,7 +444,11 @@ using namespace cv;
         double latCenter = asin(fmax(-1, fmin(1, Fy)));
         double hfovDeg_frame = 2.0 * atan(fd.imgW / (2.0 * fd.fx)) * 180.0 / M_PI;
         double vfovDeg_frame = 2.0 * atan(fd.imgH / (2.0 * fd.fy)) * 180.0 / M_PI;
-        double halfH = hfovDeg_frame / 2.0 + 10.0;
+        // At high latitudes, longitude converges — same angular FOV spans more
+        // longitude degrees. Correct by 1/cos(worst-case latitude).
+        double worstLat = fabs(latCenter) + (vfovDeg_frame / 2.0 + 10.0) * M_PI / 180.0;
+        double cosWorstLat = fmax(cos(worstLat), 0.05);
+        double halfH = fmin(180.0, (hfovDeg_frame / 2.0 + 10.0) / cosWorstLat);
         double halfV = vfovDeg_frame / 2.0 + 10.0;
         int cxMin = (int)(((lonCenter - halfH*M_PI/180.0)/M_PI + 1.0)*0.5*width_) - 2;
         int cxMax = (int)(((lonCenter + halfH*M_PI/180.0)/M_PI + 1.0)*0.5*width_) + 2;
@@ -677,12 +531,7 @@ using namespace cv;
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // STEP 4: Winner-takes-all compositing
-    //
-    // Each pixel uses ONLY the single best frame (highest normalized
-    // edge distance = closest to frame center). No blending of
-    // overlapping frames — eliminates all ghosting/doubling.
-    // Exposure compensation (STEP 3) handles brightness matching.
+    // STEP 4: Feathered winner-takes-all
     // ══════════════════════════════════════════════════════════════════
     std::vector<float> maxEdgeDist(numFrames);
     for (NSUInteger ki = 0; ki < numFrames; ki++) {
@@ -690,25 +539,54 @@ using namespace cv;
         if (maxEdgeDist[ki] < 1.0f) maxEdgeDist[ki] = 1.0f;
     }
 
-    Mat result(height_, width_, CV_8UC4, cv::Scalar(0, 0, 0, 0));
+    // Pick winner per pixel
+    std::vector<Mat> winMasks(numFrames);
+    for (NSUInteger ki = 0; ki < numFrames; ki++)
+        winMasks[ki] = Mat::zeros(height_, width_, CV_32FC1);
+
     for (int r = 0; r < height_; r++)
         for (int c = 0; c < width_; c++) {
-            float bestW = 0;
-            int bestK = -1;
+            float bestW = 0; int bestK = -1;
             for (NSUInteger ki = 0; ki < numFrames; ki++) {
                 float ed = warpedWeights[ki].at<float>(r, c);
                 if (ed > 0) {
                     float norm = ed / maxEdgeDist[ki];
-                    if (norm > bestW) {
-                        bestW = norm;
-                        bestK = (int)ki;
-                    }
+                    if (norm > bestW) { bestW = norm; bestK = (int)ki; }
                 }
             }
-            if (bestK >= 0) {
-                Vec3b px = warpedFrames[bestK].at<Vec3b>(r, c);
-                result.at<Vec4b>(r, c) = Vec4b(px[0], px[1], px[2], 255);
+            if (bestK >= 0) winMasks[bestK].at<float>(r, c) = 1.0f;
+        }
+
+    // Narrow feather
+    for (NSUInteger ki = 0; ki < numFrames; ki++)
+        GaussianBlur(winMasks[ki], winMasks[ki], cv::Size(7, 7), 0);
+
+    // Normalize
+    Mat maskSum = Mat::zeros(height_, width_, CV_32FC1);
+    for (NSUInteger ki = 0; ki < numFrames; ki++) maskSum += winMasks[ki];
+    for (NSUInteger ki = 0; ki < numFrames; ki++)
+        for (int r = 0; r < height_; r++)
+            for (int c = 0; c < width_; c++) {
+                float s = maskSum.at<float>(r, c);
+                if (s > 0) winMasks[ki].at<float>(r, c) /= s;
             }
+
+    // Blend
+    Mat result(height_, width_, CV_8UC4, cv::Scalar(0,0,0,0));
+    for (int r = 0; r < height_; r++)
+        for (int c = 0; c < width_; c++) {
+            if (maskSum.at<float>(r, c) <= 0) continue;
+            float bR=0, bG=0, bB=0;
+            for (NSUInteger ki = 0; ki < numFrames; ki++) {
+                float w = winMasks[ki].at<float>(r, c);
+                if (w > 0) {
+                    Vec3b px = warpedFrames[ki].at<Vec3b>(r, c);
+                    bR += w*px[0]; bG += w*px[1]; bB += w*px[2];
+                }
+            }
+            result.at<Vec4b>(r, c) = Vec4b(
+                (uchar)fmin(bR,255), (uchar)fmin(bG,255),
+                (uchar)fmin(bB,255), 255);
         }
 
     NSLog(@"[Equirect Fallback] Done: %dx%d (%lu frames)", width_, height_, (unsigned long)numFrames);

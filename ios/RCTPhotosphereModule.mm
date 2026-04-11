@@ -149,6 +149,25 @@ RCT_EXPORT_METHOD(composeEquirect:(NSArray *)shots
             intrinsics = sI;
         }
 
+        // ── 1c. Log camera translation (parallax diagnostics) ─────────
+        {
+            NSArray *pos0 = shots[0][@"position"];
+            if (pos0 && [pos0 isKindOfClass:[NSArray class]] && pos0.count >= 3) {
+                double x0 = [pos0[0] doubleValue], y0 = [pos0[1] doubleValue], z0 = [pos0[2] doubleValue];
+                for (NSUInteger idx = 0; idx < totalShots; idx++) {
+                    NSArray *pos = shots[idx][@"position"];
+                    if (pos && [pos isKindOfClass:[NSArray class]] && pos.count >= 3) {
+                        double dx = [pos[0] doubleValue] - x0;
+                        double dy = [pos[1] doubleValue] - y0;
+                        double dz = [pos[2] doubleValue] - z0;
+                        double dist = sqrt(dx*dx + dy*dy + dz*dz);
+                        NSLog(@"[Parallax] Frame %lu: %.1fcm from frame 0 (dx=%.3f dy=%.3f dz=%.3f)",
+                              (unsigned long)idx, dist * 100.0, dx, dy, dz);
+                    }
+                }
+            }
+        }
+
         // ── 2.  Equirectangular compositing with progress ────────────────
         double hFov = [shots[0][@"hFov"] doubleValue];
         if (hFov <= 0) hFov = 43.0;

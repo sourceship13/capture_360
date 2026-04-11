@@ -25,6 +25,8 @@ static inline float CLAMP(float x, float lo, float hi) {
     NSString *_sessionDir;
     NSTimeInterval _lastOrientationSend;
     NSTimeInterval _lastFrameCapture;
+    BOOL _hasAnchor;
+    simd_float3 _anchorPosition;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -78,6 +80,7 @@ static inline float CLAMP(float x, float lo, float hi) {
         [_capturedFrames removeAllObjects];
     }
     _lastFrameCapture = 0;
+    _hasAnchor = NO;
 
     // Lock exposure + white balance using Custom mode (works with ARKit)
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -232,6 +235,17 @@ static inline float CLAMP(float x, float lo, float hi) {
     NSData *jpegData = UIImageJPEGRepresentation(image, 0.95);
     [jpegData writeToFile:framePath atomically:YES];
 
+    // Translation drift detection
+    simd_float3 pos = simd_make_float3(t.columns[3].x, t.columns[3].y, t.columns[3].z);
+    float drift = 0;
+    if (!_hasAnchor) {
+        _anchorPosition = pos;
+        _hasAnchor = YES;
+    } else {
+        simd_float3 d = pos - _anchorPosition;
+        drift = simd_length(d);
+    }
+
     NSDictionary *entry = @{
         @"path":      framePath,
         @"yaw":       @(yaw),
@@ -246,18 +260,27 @@ static inline float CLAMP(float x, float lo, float hi) {
         @"cy":        @(cy_intrinsic),
         @"imageWidth":  @(res.width),
         @"imageHeight": @(res.height),
+        @"position":  @[@(pos.x), @(pos.y), @(pos.z)],
     };
+
+    NSLog(@"[ARCameraView] Frame %d position: (%.3f, %.3f, %.3f) drift=%.1fcm",
+          idx, pos.x, pos.y, pos.z, drift * 100.0f);
 
     @synchronized (_capturedFrames) {
         [_capturedFrames addObject:entry];
     }
 
-    // Notify JS of capture
+    // Notify JS of capture (include drift warning if > 3cm)
     if (self.onOrientationUpdate) {
-        self.onOrientationUpdate(@{
+        NSMutableDictionary *event = [@{
             @"yaw": @(yaw), @"pitch": @(pitch), @"roll": @(roll),
             @"capturedCount": @(idx + 1), @"timestamp": @(frame.timestamp),
-        });
+            @"driftCm": @(drift * 100.0f),
+        } mutableCopy];
+        if (drift > 0.03f) {
+            event[@"driftWarning"] = @(YES);
+        }
+        self.onOrientationUpdate(event);
     }
 
     NSLog(@"[ARCameraView] Manual capture %d: yaw=%.1f° pitch=%.1f° hFov=%.1f°", idx, yaw, pitch, hFovDeg);
