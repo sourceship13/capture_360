@@ -200,6 +200,9 @@ static inline float CLAMP(float x, float lo, float hi) {
     CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
     if (!cgImage) return;
 
+    // Always save in native sensor orientation (landscape).
+    // The ARKit rotation matrix encodes the full camera pose,
+    // so the warping code handles all orientation via the matrix.
     UIImage *image = [UIImage imageWithCGImage:cgImage
                                          scale:1.0
                                    orientation:UIImageOrientationUp];

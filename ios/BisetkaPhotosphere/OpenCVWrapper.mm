@@ -216,7 +216,7 @@ using namespace cv;
     if (images.count < 2) return nil;
 
     // ── Angular deduplication ────────────────────────────────────────
-    const double MIN_ANGLE_DEG = 25.0;
+    const double MIN_ANGLE_DEG = 15.0;
     const double MIN_ANGLE_COS = cos(MIN_ANGLE_DEG * M_PI / 180.0);
 
     NSUInteger N = images.count;
@@ -249,90 +249,22 @@ using namespace cv;
     NSLog(@"[Equirect] Angular dedup: %lu → %lu frames (min %.0f°)",
           (unsigned long)N, (unsigned long)keepIdx.size(), MIN_ANGLE_DEG);
 
-    // ── Prepare images for stitcher ──────────────────────────────────
-    std::vector<Mat> mats;
-    mats.reserve(keepIdx.size());
+    // ── Go directly to IMU-based compositing ─────────────────────────
+    // ARKit rotation matrices are accurate for manual captures.
+    // The OpenCV Stitcher's output is NOT equirectangular, so we skip it
+    // and use the direct rotation-matrix projection which produces proper
+    // equirectangular output.
+    NSLog(@"[Equirect] Using direct ARKit rotation compositing (%lu frames)",
+          (unsigned long)keepIdx.size());
 
-    for (NSUInteger ki = 0; ki < keepIdx.size(); ki++) {
-        NSUInteger i = keepIdx[ki];
-        Mat m = [self cvMatFromUIImage:images[i]];
-        cv::flip(m, m, 0);
-
-        // Convert RGBA → BGR (Stitcher expects BGR)
-        Mat bgr;
-        cvtColor(m, bgr, COLOR_RGBA2BGR);
-
-        // Scale for performance — but keep resolution higher for quality
-        double maxDim = MAX(bgr.cols, bgr.rows);
-        if (maxDim > 1600) {
-            double scale = 1600.0 / maxDim;
-            Mat scaled;
-            cv::resize(bgr, scaled, cv::Size(), scale, scale, cv::INTER_AREA);
-            mats.push_back(scaled);
-        } else {
-            mats.push_back(bgr);
-        }
-
-        if (progressBlock) {
-            progressBlock(ki + 1, keepIdx.size());
-        }
-    }
-
-    NSLog(@"[Equirect] Running OpenCV Stitcher on %lu frames...", (unsigned long)mats.size());
-
-    // ── Run the stitcher ─────────────────────────────────────────────
-    cv::Ptr<cv::Stitcher> stitcher = cv::Stitcher::create(cv::Stitcher::PANORAMA);
-    stitcher->setPanoConfidenceThresh(0.3);
-    // Tune for photosphere use:
-    // - Lower confidence threshold for matching (we have lots of overlap)
-    // - Use PANORAMA mode (spherical warping)
-
-
-    Mat stitchedResult;
-    cv::Stitcher::Status status = stitcher->stitch(mats, stitchedResult);
-
-    if (status != cv::Stitcher::OK) {
-        NSString *reason;
-        switch (status) {
-            case cv::Stitcher::ERR_NEED_MORE_IMGS:
-                reason = @"need more images";
-                break;
-            case cv::Stitcher::ERR_HOMOGRAPHY_EST_FAIL:
-                reason = @"homography estimation failed";
-                break;
-            case cv::Stitcher::ERR_CAMERA_PARAMS_ADJUST_FAIL:
-                reason = @"camera params adjustment failed";
-                break;
-            default:
-                reason = [NSString stringWithFormat:@"unknown (%d)", (int)status];
-        }
-        NSLog(@"[Equirect Stitcher] FAILED: %@ — falling back to IMU composite", reason);
-
-        // ── Fallback: simple IMU-based compositing ───────────────────
-        return [self compositeEquirectFallback:images
-                                         yaws:yaws
-                                      pitches:pitches
-                                         hFov:hfovDegrees
-                                  canvasWidth:width
-                                 canvasHeight:height
-                                    rotations:rotations
-                                     progress:progressBlock];
-    }
-
-    NSLog(@"[Equirect Stitcher] SUCCESS: %dx%d", stitchedResult.cols, stitchedResult.rows);
-
-    // ── Resize to target equirect dimensions ─────────────────────────
-    // The stitcher output is already in spherical projection.
-    // Resize to our target canvas size.
-    Mat resized;
-    cv::resize(stitchedResult, resized, cv::Size(width, height), 0, 0, cv::INTER_LANCZOS4);
-
-    // Convert BGR → RGBA
-    Mat rgba;
-    cvtColor(resized, rgba, COLOR_BGR2RGBA);
-
-    NSLog(@"[Equirect Composite] Done via Stitcher: %dx%d", width, height);
-    return [self UIImageFromCVMat:rgba];
+    return [self compositeEquirectFallback:images
+                                     yaws:yaws
+                                  pitches:pitches
+                                     hFov:hfovDegrees
+                              canvasWidth:width
+                             canvasHeight:height
+                                rotations:rotations
+                                 progress:progressBlock];
 }
 
 // ---------------------------------------------------------------------------
@@ -354,7 +286,7 @@ using namespace cv;
     double hfovRad = hfovDegrees * M_PI / 180.0;
 
     // ── Angular dedup ────────────────────────────────────────────────
-    const double MIN_ANGLE_DEG = 25.0;
+    const double MIN_ANGLE_DEG = 15.0;
     const double MIN_ANGLE_COS = cos(MIN_ANGLE_DEG * M_PI / 180.0);
     NSUInteger N = images.count;
     std::vector<double> fwdX(N), fwdY(N), fwdZ(N);
@@ -452,128 +384,12 @@ using namespace cv;
     // refined relative to its best-overlapping already-refined frame.
     // ══════════════════════════════════════════════════════════════════
 
-    auto orb = cv::ORB::create(1000);
-    cv::BFMatcher matcher(cv::NORM_HAMMING);
-
-    // Pre-detect features for all frames
-    std::vector<std::vector<cv::KeyPoint>> allKps(numFrames);
-    std::vector<Mat> allDescs(numFrames);
-    for (NSUInteger ki = 0; ki < numFrames; ki++) {
-        Mat gray;
-        cvtColor(frames[ki].src, gray, COLOR_BGR2GRAY);
-        orb->detectAndCompute(gray, cv::noArray(), allKps[ki], allDescs[ki]);
-    }
-
+    // Trust ARKit rotations directly — no homography refinement needed
+    // (manual captures are stationary, ARKit is accurate enough)
     std::vector<bool> refined(numFrames, false);
-    refined[0] = true;  // Frame 0 is anchor
-
-    for (NSUInteger ki = 1; ki < numFrames; ki++) {
-        // Find best overlapping refined frame
-        int bestRef = -1;
-        double bestDot = -1;
-        for (NSUInteger rki = 0; rki < ki; rki++) {
-            if (!refined[rki]) continue;
-            // Dot product of forward vectors
-            double dot = frames[ki].R[6]*frames[rki].R[6]
-                       + frames[ki].R[7]*frames[rki].R[7]
-                       + frames[ki].R[8]*frames[rki].R[8];
-            if (dot > bestDot) { bestDot = dot; bestRef = (int)rki; }
-        }
-
-        if (bestRef < 0 || bestDot < 0.3) {
-            refined[ki] = true;  // No good overlap, keep IMU rotation
-            continue;
-        }
-
-        // Match features
-        if (allDescs[ki].empty() || allDescs[bestRef].empty()) {
-            refined[ki] = true;
-            continue;
-        }
-
-        std::vector<std::vector<cv::DMatch>> knnMatches;
-        matcher.knnMatch(allDescs[bestRef], allDescs[ki], knnMatches, 2);
-
-        // Lowe's ratio test
-        std::vector<cv::Point2f> ptsA, ptsB;
-        for (auto &m : knnMatches) {
-            if (m.size() == 2 && m[0].distance < 0.7f * m[1].distance) {
-                ptsA.push_back(allKps[bestRef][m[0].queryIdx].pt);
-                ptsB.push_back(allKps[ki][m[0].trainIdx].pt);
-            }
-        }
-
-        if (ptsA.size() < 12) {
-            refined[ki] = true;
-            NSLog(@"[RotRefine] Frame %lu: only %lu matches, keeping IMU", (unsigned long)ki, (unsigned long)ptsA.size());
-            continue;
-        }
-
-        // Compute homography
-        Mat inlierMask;
-        Mat H = findHomography(ptsA, ptsB, cv::RANSAC, 3.0, inlierMask);
-        if (H.empty()) {
-            refined[ki] = true;
-            continue;
-        }
-
-        int inlierCount = countNonZero(inlierMask);
-        if (inlierCount < 10) {
-            refined[ki] = true;
-            NSLog(@"[RotRefine] Frame %lu: only %d inliers, keeping IMU", (unsigned long)ki, inlierCount);
-            continue;
-        }
-
-        // Extract rotation from H = K_B * R_AtoB * K_A^-1
-        // R_AtoB = K_B^-1 * H * K_A
-        FrameData &fA = frames[bestRef];
-        FrameData &fB = frames[ki];
-
-        Mat K_A = (Mat_<double>(3,3) << fA.fx, 0, fA.cx, 0, fA.fy, fA.cy, 0, 0, 1);
-        Mat K_B = (Mat_<double>(3,3) << fB.fx, 0, fB.cx, 0, fB.fy, fB.cy, 0, 0, 1);
-
-        Mat H64;
-        H.convertTo(H64, CV_64F);
-        Mat R_AtoB = K_B.inv() * H64 * K_A;
-
-        // Normalize to proper rotation (closest rotation matrix via SVD)
-        Mat W, U, Vt;
-        cv::SVDecomp(R_AtoB, W, U, Vt);
-        Mat R_clean = U * Vt;
-        double det = determinant(R_clean);
-        if (det < 0) {
-            R_clean = -R_clean;
-        }
-
-        // R_AtoB transforms points from A's camera space to B's camera space
-        // In world coordinates:
-        //   R_B_world = R_A_world * R_AtoB^T
-        // (because R_AtoB goes from A→B in camera space,
-        //  and our R matrices are camera-to-world)
-
-        // Build R_A as 3x3 Mat (camera-to-world, rows = right/up/forward)
-        Mat R_A_w = (Mat_<double>(3,3) <<
-            fA.R[0], fA.R[1], fA.R[2],
-            fA.R[3], fA.R[4], fA.R[5],
-            fA.R[6], fA.R[7], fA.R[8]);
-
-        // Corrected world rotation for frame B
-        Mat R_B_corrected = R_A_w * R_clean.t();
-
-        // Extract back to our format
-        fB.R[0] = R_B_corrected.at<double>(0,0);
-        fB.R[1] = R_B_corrected.at<double>(0,1);
-        fB.R[2] = R_B_corrected.at<double>(0,2);
-        fB.R[3] = R_B_corrected.at<double>(1,0);
-        fB.R[4] = R_B_corrected.at<double>(1,1);
-        fB.R[5] = R_B_corrected.at<double>(1,2);
-        fB.R[6] = R_B_corrected.at<double>(2,0);
-        fB.R[7] = R_B_corrected.at<double>(2,1);
-        fB.R[8] = R_B_corrected.at<double>(2,2);
-
+    for (NSUInteger ki = 0; ki < numFrames; ki++) {
         refined[ki] = true;
-        NSLog(@"[RotRefine] Frame %lu refined from %d (%d inliers, %.1f° overlap)",
-              (unsigned long)ki, bestRef, inlierCount, acos(fmin(1.0, bestDot))*180/M_PI);
+        NSLog(@"[RotRefine] Frame %lu: using ARKit rotation directly", (unsigned long)ki);
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -693,48 +509,50 @@ using namespace cv;
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // STEP 4: Winner-takes-all + Gaussian feather
+    // STEP 4: Smooth distance-weighted blending
+    //
+    // Each pixel is a weighted average of all contributing frames.
+    // Weight = (edgeDist / maxEdgeDist)^4  — frames contribute most
+    // at their center and fade smoothly toward edges, producing
+    // seamless transitions in overlap zones.
     // ══════════════════════════════════════════════════════════════════
-    Mat bestIdx = Mat::ones(height_, width_, CV_32SC1) * -1;
-    Mat bestDist = Mat::zeros(height_, width_, CV_32FC1);
-    for (NSUInteger ki = 0; ki < numFrames; ki++)
-        for (int r=0; r<height_; r++) {
-            const float *wRow = warpedWeights[ki].ptr<float>(r);
-            float *bdRow = bestDist.ptr<float>(r);
-            int *biRow = bestIdx.ptr<int>(r);
-            for (int c=0; c<width_; c++)
-                if (wRow[c] > bdRow[c]) { bdRow[c]=wRow[c]; biRow[c]=(int)ki; }
-        }
 
-    for (NSUInteger ki = 0; ki < numFrames; ki++)
-        for (int r=0; r<height_; r++) {
-            uchar *maskRow = warpedMasks[ki].ptr<uchar>(r);
-            const int *biRow = bestIdx.ptr<int>(r);
-            for (int c=0; c<width_; c++)
-                maskRow[c] = (biRow[c]==(int)ki) ? 255 : 0;
-        }
-
-    std::vector<Mat> floatMasks(numFrames);
+    // Pre-compute max edge distance per frame for normalization
+    std::vector<float> maxEdgeDist(numFrames);
     for (NSUInteger ki = 0; ki < numFrames; ki++) {
-        warpedMasks[ki].convertTo(floatMasks[ki], CV_32FC1, 1.0/255.0);
-        cv::GaussianBlur(floatMasks[ki], floatMasks[ki], cv::Size(17, 17), 0);
+        maxEdgeDist[ki] = (float)(MIN(frames[ki].imgW, frames[ki].imgH) * 0.5);
+        if (maxEdgeDist[ki] < 1.0f) maxEdgeDist[ki] = 1.0f;
     }
 
     Mat result(height_, width_, CV_8UC4);
-    for (int r=0; r<height_; r++)
-        for (int c=0; c<width_; c++) {
-            float totalW=0; float accR=0, accG=0, accB=0;
-            for (NSUInteger ki=0; ki<numFrames; ki++) {
-                float w = floatMasks[ki].at<float>(r,c);
-                if (w > 0.001f) {
-                    Vec3b px = warpedFrames[ki].at<Vec3b>(r,c);
-                    accR+=px[0]*w; accG+=px[1]*w; accB+=px[2]*w; totalW+=w;
+    for (int r = 0; r < height_; r++)
+        for (int c = 0; c < width_; c++) {
+            float totalW = 0;
+            float accR = 0, accG = 0, accB = 0;
+            for (NSUInteger ki = 0; ki < numFrames; ki++) {
+                float edgeDist = warpedWeights[ki].at<float>(r, c);
+                if (edgeDist > 0) {
+                    // Normalize to [0,1] and raise to 4th power
+                    // This makes frames dominate strongly at center,
+                    // fade smoothly toward edges
+                    float norm = edgeDist / maxEdgeDist[ki];
+                    if (norm > 1.0f) norm = 1.0f;
+                    float w = norm * norm * norm * norm;  // power-4
+
+                    Vec3b px = warpedFrames[ki].at<Vec3b>(r, c);
+                    accR += px[0] * w;
+                    accG += px[1] * w;
+                    accB += px[2] * w;
+                    totalW += w;
                 }
             }
             if (totalW > 0)
-                result.at<Vec4b>(r,c) = Vec4b((uchar)(accR/totalW),(uchar)(accG/totalW),(uchar)(accB/totalW),255);
+                result.at<Vec4b>(r, c) = Vec4b(
+                    (uchar)(accR / totalW),
+                    (uchar)(accG / totalW),
+                    (uchar)(accB / totalW), 255);
             else
-                result.at<Vec4b>(r,c) = Vec4b(0,0,0,0);
+                result.at<Vec4b>(r, c) = Vec4b(0, 0, 0, 0);
         }
 
     NSLog(@"[Equirect Fallback] Done: %dx%d (%lu frames)", width_, height_, (unsigned long)numFrames);
