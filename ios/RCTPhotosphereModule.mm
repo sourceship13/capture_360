@@ -72,6 +72,7 @@ RCT_EXPORT_METHOD(composeEquirect:(NSArray *)shots
         NSMutableArray<NSNumber *> *yaws    = [NSMutableArray array];
         NSMutableArray<NSNumber *> *pitches = [NSMutableArray array];
         NSMutableArray<NSArray<NSNumber *> *> *rotations = [NSMutableArray array];
+        NSMutableArray<NSArray<NSNumber *> *> *intrinsics = [NSMutableArray array];
 
         NSUInteger totalShots = shots.count;
         for (NSUInteger idx = 0; idx < totalShots; idx++) {
@@ -91,6 +92,19 @@ RCT_EXPORT_METHOD(composeEquirect:(NSArray *)shots
             [pitches addObject:shot[@"pitch"]  ?: @(0)];
             NSArray *rm = shot[@"rotationMatrix"];
             [rotations addObject:(rm && [rm isKindOfClass:[NSArray class]] && rm.count == 9) ? rm : @[]];
+
+            // Per-frame ARKit intrinsics: [fx, fy, cx, cy, imageWidth, imageHeight]
+            NSNumber *fxVal = shot[@"fx"];
+            NSNumber *fyVal = shot[@"fy"];
+            NSNumber *cxVal = shot[@"cx"];
+            NSNumber *cyVal = shot[@"cy"];
+            NSNumber *imgW  = shot[@"imageWidth"];
+            NSNumber *imgH  = shot[@"imageHeight"];
+            if (fxVal && fyVal && cxVal && cyVal && imgW && imgH) {
+                [intrinsics addObject:@[fxVal, fyVal, cxVal, cyVal, imgW, imgH]];
+            } else {
+                [intrinsics addObject:@[]];
+            }
 
             // Emit loading progress
             [self sendEventWithName:@"stitchProgress" body:@{
@@ -118,6 +132,7 @@ RCT_EXPORT_METHOD(composeEquirect:(NSArray *)shots
             NSMutableArray<NSNumber *> *sY   = [NSMutableArray arrayWithCapacity:kMaxFrames];
             NSMutableArray<NSNumber *> *sP   = [NSMutableArray arrayWithCapacity:kMaxFrames];
             NSMutableArray<NSArray<NSNumber *> *> *sR = [NSMutableArray arrayWithCapacity:kMaxFrames];
+            NSMutableArray<NSArray<NSNumber *> *> *sI = [NSMutableArray arrayWithCapacity:kMaxFrames];
             double step = (double)images.count / (double)kMaxFrames;
             for (NSUInteger i = 0; i < kMaxFrames; i++) {
                 NSUInteger idx = (NSUInteger)(i * step);
@@ -125,19 +140,25 @@ RCT_EXPORT_METHOD(composeEquirect:(NSArray *)shots
                 [sY   addObject:yaws[idx]];
                 [sP   addObject:pitches[idx]];
                 [sR   addObject:rotations[idx]];
+                [sI   addObject:intrinsics[idx]];
             }
-            images    = sImg;
-            yaws      = sY;
-            pitches   = sP;
-            rotations = sR;
+            images     = sImg;
+            yaws       = sY;
+            pitches    = sP;
+            rotations  = sR;
+            intrinsics = sI;
         }
 
         // ── 2.  Equirectangular compositing with progress ────────────────
         double hFov = [shots[0][@"hFov"] doubleValue];
         if (hFov <= 0) hFov = 43.0;
 
-        NSLog(@"[Stitch] Compositing %lu frames (hFov=%.0f°)…",
-              (unsigned long)images.count, hFov);
+        // Enforce 2:1 equirectangular canvas
+        int canvasWidth = 4096;
+        int canvasHeight = canvasWidth / 2;
+
+        NSLog(@"[Stitch] Compositing %lu frames (hFov=%.0f°) canvas=%dx%d…",
+              (unsigned long)images.count, hFov, canvasWidth, canvasHeight);
 
         [self sendEventWithName:@"stitchProgress" body:@{
             @"phase":   @"compositing",
@@ -149,9 +170,10 @@ RCT_EXPORT_METHOD(composeEquirect:(NSArray *)shots
                                                       yaws:yaws
                                                    pitches:pitches
                                                       hFov:hFov
-                                               canvasWidth:4096
-                                              canvasHeight:2048
+                                               canvasWidth:canvasWidth
+                                              canvasHeight:canvasHeight
                                                  rotations:rotations
+                                                intrinsics:intrinsics
                                                   progress:^(NSUInteger current, NSUInteger total) {
             [self sendEventWithName:@"stitchProgress" body:@{
                 @"phase":   @"compositing",

@@ -25,11 +25,8 @@ using namespace cv;
                  canvasSize:(CGSize)canvasSize
                  cameraHFOV:(double)hfovDegrees {
     
-    // Convert UIImage to cv::Mat
+    // Convert UIImage to cv::Mat (already top-down from cvMatFromUIImage)
     Mat src = [self cvMatFromUIImage:image];
-    // CGContextDrawImage has origin at bottom-left (CG convention).
-    // Flip vertically so row 0 = top of image (OpenCV convention).
-    cv::flip(src, src, 0);
     
     int width = (int)canvasSize.width;
     int height = (int)canvasSize.height;
@@ -138,7 +135,6 @@ using namespace cv;
 
     for (UIImage *img in images) {
         Mat m = [self cvMatFromUIImage:img];
-        cv::flip(m, m, 0);  // fix CG bottom-left origin
 
         // Convert RGBA → BGR (OpenCV stitcher expects BGR)
         Mat bgr;
@@ -211,12 +207,16 @@ using namespace cv;
                    canvasWidth:(int)width
                   canvasHeight:(int)height
                      rotations:(NSArray<NSArray<NSNumber *> *> *)rotations
+                    intrinsics:(NSArray<NSArray<NSNumber *> *> *)intrinsics
                       progress:(void (^)(NSUInteger, NSUInteger))progressBlock {
 
     if (images.count < 2) return nil;
 
+    // Enforce 2:1 equirectangular canvas
+    height = width / 2;
+
     // ── Angular deduplication ────────────────────────────────────────
-    const double MIN_ANGLE_DEG = 15.0;
+    const double MIN_ANGLE_DEG = 8.0;
     const double MIN_ANGLE_COS = cos(MIN_ANGLE_DEG * M_PI / 180.0);
 
     NSUInteger N = images.count;
@@ -264,6 +264,7 @@ using namespace cv;
                               canvasWidth:width
                              canvasHeight:height
                                 rotations:rotations
+                               intrinsics:intrinsics
                                  progress:progressBlock];
 }
 
@@ -281,12 +282,16 @@ using namespace cv;
                            canvasWidth:(int)width
                           canvasHeight:(int)height
                              rotations:(NSArray<NSArray<NSNumber *> *> *)rotations
+                            intrinsics:(NSArray<NSArray<NSNumber *> *> *)intrinsics
                               progress:(void (^)(NSUInteger, NSUInteger))progressBlock {
 
     double hfovRad = hfovDegrees * M_PI / 180.0;
 
+    // Enforce 2:1 equirectangular canvas
+    height = width / 2;
+
     // ── Angular dedup ────────────────────────────────────────────────
-    const double MIN_ANGLE_DEG = 15.0;
+    const double MIN_ANGLE_DEG = 8.0;
     const double MIN_ANGLE_COS = cos(MIN_ANGLE_DEG * M_PI / 180.0);
     NSUInteger N = images.count;
     std::vector<double> fwdX(N), fwdY(N), fwdZ(N);
@@ -333,7 +338,6 @@ using namespace cv;
         FrameData &fd = frames[ki];
 
         Mat src = [self cvMatFromUIImage:images[i]];
-        cv::flip(src, src, 0);
 
         double maxDim = MAX(src.cols, src.rows);
         if (maxDim > 2400) {
@@ -350,11 +354,34 @@ using namespace cv;
 
         fd.imgW = src.cols;
         fd.imgH = src.rows;
-        double vfovRad = 2.0 * atan(tan(hfovRad / 2.0) * (fd.imgH / fd.imgW));
-        fd.fx = fd.imgW / (2.0 * tan(hfovRad / 2.0));
-        fd.fy = fd.imgH / (2.0 * tan(vfovRad / 2.0));
-        fd.cx = fd.imgW / 2.0;
-        fd.cy = fd.imgH / 2.0;
+
+        // Use real ARKit intrinsics if available, scaled to current image size
+        NSArray<NSNumber *> *intr = (i < intrinsics.count) ? intrinsics[i] : nil;
+        if (intr && intr.count >= 6) {
+            double origFx = [intr[0] doubleValue];
+            double origFy = [intr[1] doubleValue];
+            double origCx = [intr[2] doubleValue];
+            double origCy = [intr[3] doubleValue];
+            double origW  = [intr[4] doubleValue];
+            double origH  = [intr[5] doubleValue];
+            double sx = fd.imgW / origW;
+            double sy = fd.imgH / origH;
+            fd.fx = origFx * sx;
+            fd.fy = origFy * sy;
+            fd.cx = origCx * sx;
+            fd.cy = origCy * sy;
+            NSLog(@"[STEP0] Frame %lu: real intrinsics fx=%.1f fy=%.1f cx=%.1f cy=%.1f (scale=%.3f)",
+                  (unsigned long)ki, fd.fx, fd.fy, fd.cx, fd.cy, sx);
+        } else {
+            // Fallback: derive from hFov
+            double vfovRad = 2.0 * atan(tan(hfovRad / 2.0) * (fd.imgH / fd.imgW));
+            fd.fx = fd.imgW / (2.0 * tan(hfovRad / 2.0));
+            fd.fy = fd.imgH / (2.0 * tan(vfovRad / 2.0));
+            fd.cx = fd.imgW / 2.0;
+            fd.cy = fd.imgH / 2.0;
+            NSLog(@"[STEP0] Frame %lu: derived intrinsics fx=%.1f fy=%.1f (from hFov=%.1f°)",
+                  (unsigned long)ki, fd.fx, fd.fy, hfovDegrees);
+        }
 
         // Extract rotation
         NSArray<NSNumber *> *rot = (i < rotations.count) ? rotations[i] : nil;
@@ -384,12 +411,153 @@ using namespace cv;
     // refined relative to its best-overlapping already-refined frame.
     // ══════════════════════════════════════════════════════════════════
 
-    // Trust ARKit rotations directly — no homography refinement needed
-    // (manual captures are stationary, ARKit is accurate enough)
+    // ORB feature matching + homography-based rotation correction.
+    // For pure-rotation cameras: H = K_j * R_j2i * K_i^-1
+    // We extract R_j2i from H and compare with the IMU-predicted
+    // relative rotation. The difference corrects the ARKit error.
+
     std::vector<bool> refined(numFrames, false);
+    refined[0] = true;  // Frame 0 is anchor
+    NSLog(@"[RotRefine] Frame 0: anchor (unchanged)");
+
+    // Pre-compute greyscale + ORB keypoints for all frames
+    auto orb = cv::ORB::create(2000);
+    std::vector<std::vector<KeyPoint>> allKps(numFrames);
+    std::vector<Mat> allDescs(numFrames);
     for (NSUInteger ki = 0; ki < numFrames; ki++) {
-        refined[ki] = true;
-        NSLog(@"[RotRefine] Frame %lu: using ARKit rotation directly", (unsigned long)ki);
+        Mat grey;
+        cvtColor(frames[ki].src, grey, COLOR_BGR2GRAY);
+        orb->detectAndCompute(grey, noArray(), allKps[ki], allDescs[ki]);
+        NSLog(@"[RotRefine] Frame %lu: %lu keypoints", (unsigned long)ki,
+              (unsigned long)allKps[ki].size());
+    }
+
+    BFMatcher matcher(NORM_HAMMING, true);  // cross-check
+
+    // Helper: build 3×3 intrinsic matrix from FrameData
+    auto makeK = [](const FrameData &fd) -> Mat {
+        Mat K = Mat::eye(3, 3, CV_64F);
+        K.at<double>(0,0) = fd.fx;
+        K.at<double>(1,1) = fd.fy;
+        K.at<double>(0,2) = fd.cx;
+        K.at<double>(1,2) = fd.cy;
+        return K;
+    };
+
+    // Helper: build 3×3 rotation matrix (col-major: right, up, forward)
+    // R[0..2]=right, R[3..5]=up, R[6..8]=forward
+    // As a matrix: columns = right, up, forward
+    auto makeR = [](const double R[9]) -> Mat {
+        Mat m(3, 3, CV_64F);
+        m.at<double>(0,0) = R[0]; m.at<double>(1,0) = R[1]; m.at<double>(2,0) = R[2]; // right col
+        m.at<double>(0,1) = R[3]; m.at<double>(1,1) = R[4]; m.at<double>(2,1) = R[5]; // up col
+        m.at<double>(0,2) = R[6]; m.at<double>(1,2) = R[7]; m.at<double>(2,2) = R[8]; // fwd col
+        return m;
+    };
+
+    // Try to refine each unrefined frame against the best overlapping refined frame
+    int maxPasses = (int)numFrames;
+    for (int pass = 0; pass < maxPasses; pass++) {
+        bool anyRefined = false;
+        for (NSUInteger ki = 0; ki < numFrames; ki++) {
+            if (refined[ki]) continue;
+            if (allDescs[ki].empty()) continue;
+
+            // Find best refined neighbor (highest forward-vector overlap)
+            double bestDot = -1;
+            NSUInteger bestRef = 0;
+            for (NSUInteger ri = 0; ri < numFrames; ri++) {
+                if (!refined[ri]) continue;
+                double dot = frames[ki].R[6]*frames[ri].R[6]
+                           + frames[ki].R[7]*frames[ri].R[7]
+                           + frames[ki].R[8]*frames[ri].R[8];
+                if (dot > bestDot) { bestDot = dot; bestRef = ri; }
+            }
+            if (bestDot < 0.3) continue;  // <~73° apart, not enough overlap
+            if (allDescs[bestRef].empty()) continue;
+
+            // Match features
+            std::vector<DMatch> matches;
+            matcher.match(allDescs[ki], allDescs[bestRef], matches);
+            if (matches.size() < 20) {
+                NSLog(@"[RotRefine] Frame %lu: only %lu matches with frame %lu, skipping",
+                      (unsigned long)ki, (unsigned long)matches.size(), (unsigned long)bestRef);
+                continue;
+            }
+
+            // Sort by distance, keep best 60%
+            std::sort(matches.begin(), matches.end(),
+                      [](const DMatch &a, const DMatch &b) { return a.distance < b.distance; });
+            size_t keep = MAX(20, (size_t)(matches.size() * 0.6));
+            matches.resize(keep);
+
+            // Extract matched points
+            std::vector<Point2f> pts1(keep), pts2(keep);
+            for (size_t m = 0; m < keep; m++) {
+                pts1[m] = allKps[ki][matches[m].queryIdx].pt;
+                pts2[m] = allKps[bestRef][matches[m].trainIdx].pt;
+            }
+
+            // Compute homography (RANSAC)
+            Mat inlierMask;
+            Mat H = findHomography(pts1, pts2, RANSAC, 3.0, inlierMask);
+            if (H.empty()) {
+                NSLog(@"[RotRefine] Frame %lu: homography failed", (unsigned long)ki);
+                continue;
+            }
+
+            int inliers = countNonZero(inlierMask);
+            if (inliers < 15) {
+                NSLog(@"[RotRefine] Frame %lu: only %d inliers, skipping", (unsigned long)ki, inliers);
+                continue;
+            }
+
+            // Extract rotation from homography:
+            // H = K_ref * R_ki2ref * K_ki^-1
+            // R_ki2ref = K_ref^-1 * H * K_ki
+            Mat Kki  = makeK(frames[ki]);
+            Mat Kref = makeK(frames[bestRef]);
+            Mat R_ki2ref_cv = Kref.inv() * H * Kki;
+
+            // Enforce orthogonality via SVD: R = U * V^T
+            Mat W, U, Vt;
+            SVD::compute(R_ki2ref_cv, W, U, Vt);
+            Mat R_ki2ref = U * Vt;
+            if (determinant(R_ki2ref) < 0) R_ki2ref = -R_ki2ref;
+
+            // The refined world rotation for frame ki:
+            // R_ref_world = makeR(frames[bestRef].R)  (already refined)
+            // R_ki2ref takes ki's camera-local to ref's camera-local
+            // R_ki_world = R_ref_world * R_ki2ref^-1
+            //            = R_ref_world * R_ki2ref^T  (since R is orthogonal)
+            Mat Rref = makeR(frames[bestRef].R);
+            Mat Rki_new = Rref * R_ki2ref.t();
+
+            // Extract back to our R[9] format: columns = right, up, forward
+            frames[ki].R[0] = Rki_new.at<double>(0,0);
+            frames[ki].R[1] = Rki_new.at<double>(1,0);
+            frames[ki].R[2] = Rki_new.at<double>(2,0);
+            frames[ki].R[3] = Rki_new.at<double>(0,1);
+            frames[ki].R[4] = Rki_new.at<double>(1,1);
+            frames[ki].R[5] = Rki_new.at<double>(2,1);
+            frames[ki].R[6] = Rki_new.at<double>(0,2);
+            frames[ki].R[7] = Rki_new.at<double>(1,2);
+            frames[ki].R[8] = Rki_new.at<double>(2,2);
+
+            refined[ki] = true;
+            anyRefined = true;
+            NSLog(@"[RotRefine] Frame %lu: refined vs frame %lu (%d inliers, dot=%.2f)",
+                  (unsigned long)ki, (unsigned long)bestRef, inliers, bestDot);
+        }
+        if (!anyRefined) break;
+    }
+
+    // Mark any unrefined frames as-is (ARKit rotation)
+    for (NSUInteger ki = 0; ki < numFrames; ki++) {
+        if (!refined[ki]) {
+            refined[ki] = true;
+            NSLog(@"[RotRefine] Frame %lu: no good matches, using ARKit rotation", (unsigned long)ki);
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -409,7 +577,6 @@ using namespace cv;
         // Use the RGBA source (not BGR) for warping
         NSUInteger i = keepIdx[ki];
         Mat src = [self cvMatFromUIImage:images[i]];
-        cv::flip(src, src, 0);
         double maxDim = MAX(src.cols, src.rows);
         if (maxDim > 2400) {
             double s = 2400.0 / maxDim;
@@ -422,12 +589,13 @@ using namespace cv;
         double Ux = fd.R[3], Uy = fd.R[4], Uz = fd.R[5];
         double Fx = fd.R[6], Fy = fd.R[7], Fz = fd.R[8];
 
-        // Bounding box
+        // Bounding box (use per-frame intrinsics for FOV)
         double lonCenter = atan2(Fx, Fz);
         double latCenter = asin(fmax(-1, fmin(1, Fy)));
-        double vfovRad = 2.0 * atan(tan(hfovRad / 2.0) * (fd.imgH / fd.imgW));
-        double halfH = hfovDegrees / 2.0 + 10.0;
-        double halfV = (vfovRad * 180.0 / M_PI) / 2.0 + 10.0;
+        double hfovDeg_frame = 2.0 * atan(fd.imgW / (2.0 * fd.fx)) * 180.0 / M_PI;
+        double vfovDeg_frame = 2.0 * atan(fd.imgH / (2.0 * fd.fy)) * 180.0 / M_PI;
+        double halfH = hfovDeg_frame / 2.0 + 10.0;
+        double halfV = vfovDeg_frame / 2.0 + 10.0;
         int cxMin = (int)(((lonCenter - halfH*M_PI/180.0)/M_PI + 1.0)*0.5*width_) - 2;
         int cxMax = (int)(((lonCenter + halfH*M_PI/180.0)/M_PI + 1.0)*0.5*width_) + 2;
         int cyMin = (int)((0.5 - (latCenter + halfV*M_PI/180.0)/M_PI)*height_) - 2;
@@ -509,147 +677,37 @@ using namespace cv;
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // STEP 4: Multi-band blending (Laplacian pyramid)
+    // STEP 4: Winner-takes-all compositing
     //
-    // Low frequencies (global brightness) are blended smoothly across
-    // large distances, while high frequencies (edges, detail) come
-    // primarily from the dominant frame (highest edge-distance weight).
-    // This eliminates BOTH ghosting AND visible seam lines — the
-    // industry standard for panorama stitching.
+    // Each pixel uses ONLY the single best frame (highest normalized
+    // edge distance = closest to frame center). No blending of
+    // overlapping frames — eliminates all ghosting/doubling.
+    // Exposure compensation (STEP 3) handles brightness matching.
     // ══════════════════════════════════════════════════════════════════
-    const int NUM_BANDS = 5;  // pyramid levels
-
-    // Pre-compute per-frame weight masks (edge distance, power-2 normalized)
     std::vector<float> maxEdgeDist(numFrames);
     for (NSUInteger ki = 0; ki < numFrames; ki++) {
         maxEdgeDist[ki] = (float)(MIN(frames[ki].imgW, frames[ki].imgH) * 0.5);
         if (maxEdgeDist[ki] < 1.0f) maxEdgeDist[ki] = 1.0f;
     }
 
-    // Pad canvas to be divisible by 2^(NUM_BANDS-1) for clean pyrDown
-    int factor = 1 << (NUM_BANDS - 1);  // 16
-    int padW = width_, padH = height_;
-    if (padW % factor != 0) padW = ((padW / factor) + 1) * factor;
-    if (padH % factor != 0) padH = ((padH / factor) + 1) * factor;
-
-    // Fill uncovered pixels with global mean to prevent black-edge
-    // artifacts in pyramid boundary smoothing
-    Vec3b fillColor((uchar)globalChannelMean[0], (uchar)globalChannelMean[1],
-                    (uchar)globalChannelMean[2]);
-    for (NSUInteger ki = 0; ki < numFrames; ki++) {
-        for (int r = 0; r < height_; r++)
-            for (int c = 0; c < width_; c++)
-                if (warpedWeights[ki].at<float>(r, c) <= 0)
-                    warpedFrames[ki].at<Vec3b>(r, c) = fillColor;
-    }
-
-    // Accumulator pyramids: blended Laplacian + weight sums per level
-    std::vector<Mat> accumLap(NUM_BANDS);
-    std::vector<Mat> accumW(NUM_BANDS);
-    {
-        int w = padW, h = padH;
-        for (int l = 0; l < NUM_BANDS; l++) {
-            accumLap[l] = Mat::zeros(h, w, CV_32FC3);
-            accumW[l]   = Mat::zeros(h, w, CV_32FC1);
-            w = (w + 1) / 2;
-            h = (h + 1) / 2;
-        }
-    }
-
-    for (NSUInteger ki = 0; ki < numFrames; ki++) {
-        // Convert warped frame to float, pad if needed
-        Mat imgF;
-        warpedFrames[ki].convertTo(imgF, CV_32FC3);
-        if (padH != height_ || padW != width_)
-            copyMakeBorder(imgF, imgF, 0, padH - height_, 0, padW - width_,
-                           BORDER_REFLECT);
-
-        // Build weight mask (power-2 normalized edge distance)
-        Mat wMask = Mat::zeros(height_, width_, CV_32FC1);
-        for (int r = 0; r < height_; r++)
-            for (int c = 0; c < width_; c++) {
+    Mat result(height_, width_, CV_8UC4, cv::Scalar(0, 0, 0, 0));
+    for (int r = 0; r < height_; r++)
+        for (int c = 0; c < width_; c++) {
+            float bestW = 0;
+            int bestK = -1;
+            for (NSUInteger ki = 0; ki < numFrames; ki++) {
                 float ed = warpedWeights[ki].at<float>(r, c);
                 if (ed > 0) {
                     float norm = ed / maxEdgeDist[ki];
-                    if (norm > 1.0f) norm = 1.0f;
-                    wMask.at<float>(r, c) = norm * norm;
+                    if (norm > bestW) {
+                        bestW = norm;
+                        bestK = (int)ki;
+                    }
                 }
             }
-        if (padH != height_ || padW != width_)
-            copyMakeBorder(wMask, wMask, 0, padH - height_, 0, padW - width_,
-                           BORDER_CONSTANT, Scalar(0));
-
-        // Build Gaussian pyramid of image
-        std::vector<Mat> gaussImg(NUM_BANDS);
-        gaussImg[0] = imgF;
-        for (int l = 1; l < NUM_BANDS; l++)
-            pyrDown(gaussImg[l - 1], gaussImg[l]);
-
-        // Build Laplacian pyramid of image
-        std::vector<Mat> lapImg(NUM_BANDS);
-        for (int l = 0; l < NUM_BANDS - 1; l++) {
-            Mat up;
-            pyrUp(gaussImg[l + 1], up, gaussImg[l].size());
-            lapImg[l] = gaussImg[l] - up;
-        }
-        lapImg[NUM_BANDS - 1] = gaussImg[NUM_BANDS - 1].clone();
-
-        // Build Gaussian pyramid of weight mask
-        std::vector<Mat> gaussW(NUM_BANDS);
-        gaussW[0] = wMask;
-        for (int l = 1; l < NUM_BANDS; l++)
-            pyrDown(gaussW[l - 1], gaussW[l]);
-
-        // Accumulate weighted Laplacian at each level
-        for (int l = 0; l < NUM_BANDS; l++) {
-            // Expand weight to 3-channel for element-wise multiply
-            Mat w3;
-            std::vector<Mat> wch = {gaussW[l], gaussW[l], gaussW[l]};
-            merge(wch, w3);
-            accumLap[l] += lapImg[l].mul(w3);
-            accumW[l]   += gaussW[l];
-        }
-
-        NSLog(@"[MultiBand] Processed frame %lu/%lu",
-              (unsigned long)(ki + 1), (unsigned long)numFrames);
-    }
-
-    // Normalize each pyramid level by total weight
-    for (int l = 0; l < NUM_BANDS; l++) {
-        for (int r = 0; r < accumLap[l].rows; r++)
-            for (int c = 0; c < accumLap[l].cols; c++) {
-                float w = accumW[l].at<float>(r, c);
-                if (w > 1e-6f) {
-                    Vec3f &px = accumLap[l].at<Vec3f>(r, c);
-                    px[0] /= w;
-                    px[1] /= w;
-                    px[2] /= w;
-                }
-            }
-    }
-
-    // Collapse Laplacian pyramid to reconstruct blended image
-    Mat collapsed = accumLap[NUM_BANDS - 1].clone();
-    for (int l = NUM_BANDS - 2; l >= 0; l--) {
-        Mat up;
-        pyrUp(collapsed, up, accumLap[l].size());
-        collapsed = up + accumLap[l];
-    }
-
-    // Crop to original size and convert to 8-bit RGBA
-    Mat cropped = collapsed(cv::Rect(0, 0, width_, height_));
-    Mat finalW  = accumW[0](cv::Rect(0, 0, width_, height_));
-    Mat result(height_, width_, CV_8UC4);
-    for (int r = 0; r < height_; r++)
-        for (int c = 0; c < width_; c++) {
-            if (finalW.at<float>(r, c) > 1e-6f) {
-                Vec3f px = cropped.at<Vec3f>(r, c);
-                result.at<Vec4b>(r, c) = Vec4b(
-                    (uchar)fmax(0, fmin(255, px[0] + 0.5f)),
-                    (uchar)fmax(0, fmin(255, px[1] + 0.5f)),
-                    (uchar)fmax(0, fmin(255, px[2] + 0.5f)), 255);
-            } else {
-                result.at<Vec4b>(r, c) = Vec4b(0, 0, 0, 0);
+            if (bestK >= 0) {
+                Vec3b px = warpedFrames[bestK].at<Vec3b>(r, c);
+                result.at<Vec4b>(r, c) = Vec4b(px[0], px[1], px[2], 255);
             }
         }
 
@@ -674,6 +732,11 @@ using namespace cv;
                                                  cvMat.step[0],
                                                  colorSpace,
                                                  kCGImageAlphaPremultipliedLast | kCGBitmapByteOrderDefault);
+    
+    // Flip Y in-context: CG origin is bottom-left, OpenCV row 0 is top.
+    // This eliminates the need for cv::flip after every cvMatFromUIImage call.
+    CGContextTranslateCTM(context, 0, rows);
+    CGContextScaleCTM(context, 1.0, -1.0);
     
     CGContextDrawImage(context, CGRectMake(0, 0, cols, rows), image.CGImage);
     CGContextRelease(context);

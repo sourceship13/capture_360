@@ -32,6 +32,12 @@ export interface RecordingCompleteEvent {
       roll: number;
       hFov: number;
       timestamp: number;
+      fx?: number;
+      fy?: number;
+      cx?: number;
+      cy?: number;
+      imageWidth?: number;
+      imageHeight?: number;
     }>;
     sessionDir: string;
   };

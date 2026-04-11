@@ -142,6 +142,12 @@ function App(): React.JSX.Element {
                   hFov: f.hFov || 65,
                   vFov: f.vFov || 50,
                   rotationMatrix: f.rotationMatrix || null,
+                  fx: f.fx,
+                  fy: f.fy,
+                  cx: f.cx,
+                  cy: f.cy,
+                  imageWidth: f.imageWidth,
+                  imageHeight: f.imageHeight,
                 }));
                 console.log(`[App] Composing ${shots.length} frames...`);
                 const stitchedPath = await composeEquirect(shots);

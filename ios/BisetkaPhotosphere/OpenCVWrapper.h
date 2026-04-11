@@ -26,6 +26,8 @@ NS_ASSUME_NONNULL_BEGIN
 /// Composite multiple frames onto a single equirectangular canvas.
 /// rotations: per-frame 9-element arrays [right.xyz, up.xyz, fwd.xyz]
 ///   representing the camera-to-world rotation with forward = +Z convention.
+/// intrinsics: per-frame 6-element arrays [fx, fy, cx, cy, imageWidth, imageHeight]
+///   from ARKit camera.intrinsics. Empty array = derive from hFov.
 /// Calls progressBlock(frameIndex, totalFrames) after each frame.
 + (UIImage *)compositeEquirect:(NSArray<UIImage *> *)images
                           yaws:(NSArray<NSNumber *> *)yaws
@@ -34,6 +36,7 @@ NS_ASSUME_NONNULL_BEGIN
                    canvasWidth:(int)width
                   canvasHeight:(int)height
                      rotations:(NSArray<NSArray<NSNumber *> *> *)rotations
+                    intrinsics:(NSArray<NSArray<NSNumber *> *> *)intrinsics
                       progress:(void (^)(NSUInteger current, NSUInteger total))progressBlock;
 
 @end

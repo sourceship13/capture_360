@@ -211,6 +211,9 @@ static inline float CLAMP(float x, float lo, float hi) {
     simd_float3x3 K = frame.camera.intrinsics;
     CGSize res = frame.camera.imageResolution;
     float fx_intrinsic = K.columns[0][0];
+    float fy_intrinsic = K.columns[1][1];
+    float cx_intrinsic = K.columns[2][0];
+    float cy_intrinsic = K.columns[2][1];
     float hFovDeg = 2.0f * atan2f((float)res.width, 2.0f * fx_intrinsic) * 180.0f / M_PI;
 
     NSArray *rotMatrix = @[
@@ -237,6 +240,12 @@ static inline float CLAMP(float x, float lo, float hi) {
         @"hFov":      @(hFovDeg),
         @"rotationMatrix": rotMatrix,
         @"timestamp": @(frame.timestamp),
+        @"fx":        @(fx_intrinsic),
+        @"fy":        @(fy_intrinsic),
+        @"cx":        @(cx_intrinsic),
+        @"cy":        @(cy_intrinsic),
+        @"imageWidth":  @(res.width),
+        @"imageHeight": @(res.height),
     };
 
     @synchronized (_capturedFrames) {
