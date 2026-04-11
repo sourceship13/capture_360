@@ -431,8 +431,8 @@ using namespace cv;
             cv::resize(src, scaled, cv::Size(), s, s, cv::INTER_AREA);
             src = scaled;
         }
-        cv::flip(src, src, 1);  // 1 = horizontal flip
-        cv::flip(src, src, 0);  // vertical flip (add this line)
+        // cv::flip(src, src, 1);  // 1 = horizontal flip
+        // cv::flip(src, src, 0);  // vertical flip (add this line)
 
 
         double Rx = fd.R[0], Ry = fd.R[1], Rz = fd.R[2];
