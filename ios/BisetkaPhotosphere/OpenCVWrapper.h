@@ -23,6 +23,19 @@ NS_ASSUME_NONNULL_BEGIN
 /// Returns nil if stitching fails (not enough overlap/features).
 + (nullable UIImage *)stitchPanorama:(NSArray<UIImage *> *)images;
 
+/// Composite multiple frames onto a single equirectangular canvas.
+/// rotations: per-frame 9-element arrays [right.xyz, up.xyz, fwd.xyz]
+///   representing the camera-to-world rotation with forward = +Z convention.
+/// Calls progressBlock(frameIndex, totalFrames) after each frame.
++ (UIImage *)compositeEquirect:(NSArray<UIImage *> *)images
+                          yaws:(NSArray<NSNumber *> *)yaws
+                       pitches:(NSArray<NSNumber *> *)pitches
+                          hFov:(double)hfovDegrees
+                   canvasWidth:(int)width
+                  canvasHeight:(int)height
+                     rotations:(NSArray<NSArray<NSNumber *> *> *)rotations
+                      progress:(void (^)(NSUInteger current, NSUInteger total))progressBlock;
+
 @end
 
 NS_ASSUME_NONNULL_END

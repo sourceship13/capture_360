@@ -13,6 +13,10 @@ import {
   TouchableOpacity,
   View,
   Alert,
+  Modal,
+  ActivityIndicator,
+  NativeEventEmitter,
+  NativeModules,
 } from 'react-native';
 
 import ARCameraView, {
@@ -20,7 +24,7 @@ import ARCameraView, {
   RecordingCompleteEvent,
 } from './src/components/ARCameraView';
 import SphericalGuide from './src/components/SphericalGuide';
-import PanoramaViewer from './src/components/PanoramaViewer';
+import SphereViewer from './src/components/SphereViewer';
 import {useVideoCapture} from './src/hooks/useVideoCapture';
 import {composeEquirect} from './src/modules/NativePhotosphere';
 import VideoRecorder from './src/modules/VideoRecorder';
@@ -29,6 +33,10 @@ function App(): React.JSX.Element {
   const [mode, setMode] = useState<'capture' | 'preview'>('capture');
   const [equirectPath, setEquirectPath] = useState<string | null>(null);
   const [hasPermission, setHasPermission] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [progressPhase, setProgressPhase] = useState('');
+  const [progressCurrent, setProgressCurrent] = useState(0);
+  const [progressTotal, setProgressTotal] = useState(0);
 
   const videoCapture = useVideoCapture();
 
@@ -43,6 +51,17 @@ function App(): React.JSX.Element {
       yawOffsetRef.current = null;
     },
   });
+
+  // Listen for native progress events
+  useEffect(() => {
+    const emitter = new NativeEventEmitter(NativeModules.NativePhotosphere);
+    const sub = emitter.addListener('stitchProgress', (event: any) => {
+      setProgressPhase(event.phase);
+      setProgressCurrent(event.current);
+      setProgressTotal(event.total);
+    });
+    return () => sub.remove();
+  }, []);
 
   // Request camera permission via our native module
   useEffect(() => {
@@ -99,14 +118,18 @@ function App(): React.JSX.Element {
                 Alert.alert('Error', 'No frames captured');
                 return;
               }
+              setProcessing(true);
+              setProgressPhase('loading');
+              setProgressCurrent(0);
+              setProgressTotal(frameCount);
               try {
-                // Build shots array with ARKit pose data for equirect compositing
                 const shots = frames.map((f: any) => ({
                   path: f.path,
                   yaw: f.yaw,
                   pitch: f.pitch,
-                  hFov: 43,   // portrait hFov ≈ 2*atan(tan(55°/2)*3/4) ≈ 43°
-                  vFov: 55,   // portrait vFov = landscape hFov
+                  hFov: f.hFov || 65,
+                  vFov: f.vFov || 50,
+                  rotationMatrix: f.rotationMatrix || null,
                 }));
                 console.log(`[App] Composing ${shots.length} frames...`);
                 const stitchedPath = await composeEquirect(shots);
@@ -116,6 +139,8 @@ function App(): React.JSX.Element {
               } catch (err) {
                 console.error('[App] Compose error:', err);
                 Alert.alert('Error', String(err));
+              } finally {
+                setProcessing(false);
               }
             },
           },
@@ -146,7 +171,7 @@ function App(): React.JSX.Element {
   if (mode === 'preview' && equirectPath) {
     return (
       <SafeAreaView style={styles.container}>
-        <PanoramaViewer imagePath={equirectPath} />
+        <SphereViewer imagePath={equirectPath} />
         
         <View style={styles.bottomBar}>
           <TouchableOpacity
@@ -172,8 +197,43 @@ function App(): React.JSX.Element {
   }
   
   // Capture mode - show camera + grid overlay
+  const progressPercent = progressTotal > 0
+    ? Math.round((progressCurrent / progressTotal) * 100)
+    : 0;
+  const phaseLabel = progressPhase === 'loading'
+    ? 'Loading frames'
+    : progressPhase === 'saving'
+    ? 'Saving panorama'
+    : 'Stitching';
+
   return (
     <SafeAreaView style={styles.container}>
+      {/* Processing modal */}
+      <Modal
+        visible={processing}
+        transparent
+        animationType="fade"
+        statusBarTranslucent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <ActivityIndicator size="large" color="#4CAF50" />
+            <Text style={styles.modalTitle}>{phaseLabel}</Text>
+            <Text style={styles.modalStatus}>
+              {progressCurrent}/{progressTotal} frames
+            </Text>
+            <View style={styles.progressBarModal}>
+              <View
+                style={[
+                  styles.progressBarFill,
+                  {width: `${progressPercent}%`},
+                ]}
+              />
+            </View>
+            <Text style={styles.modalPercent}>{progressPercent}%</Text>
+          </View>
+        </View>
+      </Modal>
+
       <ARCameraView
         style={StyleSheet.absoluteFill}
         isRecording={videoCapture.isRecording}
@@ -342,6 +402,49 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#1c1c1e',
+    borderRadius: 24,
+    paddingVertical: 32,
+    paddingHorizontal: 36,
+    alignItems: 'center',
+    width: 260,
+    gap: 10,
+  },
+  modalTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+    marginTop: 8,
+  },
+  modalStatus: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 13,
+  },
+  progressBarModal: {
+    width: '100%',
+    height: 6,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginTop: 4,
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: '#4CAF50',
+    borderRadius: 3,
+  },
+  modalPercent: {
+    color: '#4CAF50',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
 

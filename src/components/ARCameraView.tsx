@@ -23,6 +23,7 @@ export interface RecordingCompleteEvent {
       yaw: number;
       pitch: number;
       roll: number;
+      hFov: number;
       timestamp: number;
     }>;
     sessionDir: string;

@@ -9,6 +9,7 @@
 #import "RCTPhotosphereModule.h"
 #import <UIKit/UIKit.h>
 #import "OpenCVWrapper.h"
+#import <React/RCTEventEmitter.h>
 
 // ---------------------------------------------------------------------------
 // NormaliseOrientation
@@ -51,12 +52,14 @@ RCT_EXPORT_MODULE(NativePhotosphere)
 
 + (BOOL)requiresMainQueueSetup { return NO; }
 
+- (NSArray<NSString *> *)supportedEvents {
+    return @[@"stitchProgress"];
+}
+
 // ---------------------------------------------------------------------------
-// composeEquirect — Uses OpenCV Stitcher for feature-matched panorama stitching
-// with multi-band blending.  The output is a spherical-projection panorama
-// suitable for cylindrical/panorama viewers.
-//
-// Each entry in `shots` is { path, yaw, pitch, hFov, vFov }.
+// composeEquirect — Composites captured frames onto a 2048×1024 equirect
+// canvas using per-frame pinhole→spherical projection.
+// Emits 'stitchProgress' events with { current, total, phase } for live UI.
 // ---------------------------------------------------------------------------
 RCT_EXPORT_METHOD(composeEquirect:(NSArray *)shots
                   resolve:(RCTPromiseResolveBlock)resolve
@@ -65,9 +68,14 @@ RCT_EXPORT_METHOD(composeEquirect:(NSArray *)shots
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
 
         // ── 1.  Load and normalise all frames ────────────────────────────
-        NSMutableArray<UIImage *> *images = [NSMutableArray array];
+        NSMutableArray<UIImage *> *images  = [NSMutableArray array];
+        NSMutableArray<NSNumber *> *yaws    = [NSMutableArray array];
+        NSMutableArray<NSNumber *> *pitches = [NSMutableArray array];
+        NSMutableArray<NSArray<NSNumber *> *> *rotations = [NSMutableArray array];
 
-        for (NSDictionary *shot in shots) {
+        NSUInteger totalShots = shots.count;
+        for (NSUInteger idx = 0; idx < totalShots; idx++) {
+            NSDictionary *shot = shots[idx];
             NSString *path = shot[@"path"];
             NSString *posix = [path hasPrefix:@"file://"]
                 ? [[NSURL URLWithString:path] path]
@@ -78,37 +86,94 @@ RCT_EXPORT_METHOD(composeEquirect:(NSArray *)shots
                 continue;
             }
             UIImage *img = NormaliseOrientation(raw);
-            [images addObject:img];
-            NSLog(@"[Stitch] loaded frame %lu: %.0fx%.0f",
-                  (unsigned long)images.count, img.size.width, img.size.height);
+            [images  addObject:img];
+            [yaws    addObject:shot[@"yaw"]    ?: @(0)];
+            [pitches addObject:shot[@"pitch"]  ?: @(0)];
+            NSArray *rm = shot[@"rotationMatrix"];
+            [rotations addObject:(rm && [rm isKindOfClass:[NSArray class]] && rm.count == 9) ? rm : @[]];
+
+            // Emit loading progress
+            [self sendEventWithName:@"stitchProgress" body:@{
+                @"phase":   @"loading",
+                @"current": @(idx + 1),
+                @"total":   @(totalShots),
+            }];
         }
 
         if (images.count < 2) {
             reject(@"COMPOSE_ERROR",
                    [NSString stringWithFormat:
-                    @"Need at least 2 images for stitching, got %lu",
+                    @"Need at least 2 images, got %lu",
                     (unsigned long)images.count],
                    nil);
             return;
         }
 
-        // ── 2.  OpenCV Stitcher ──────────────────────────────────────────
-        NSLog(@"[Stitch] Running OpenCV Stitcher on %lu images…",
-              (unsigned long)images.count);
+        // ── 1b. Subsample if too many frames ────────────────────────────
+        const NSUInteger kMaxFrames = 40;
+        if (images.count > kMaxFrames) {
+            NSLog(@"[Stitch] Subsampling %lu → %lu frames",
+                  (unsigned long)images.count, (unsigned long)kMaxFrames);
+            NSMutableArray<UIImage *>  *sImg = [NSMutableArray arrayWithCapacity:kMaxFrames];
+            NSMutableArray<NSNumber *> *sY   = [NSMutableArray arrayWithCapacity:kMaxFrames];
+            NSMutableArray<NSNumber *> *sP   = [NSMutableArray arrayWithCapacity:kMaxFrames];
+            NSMutableArray<NSArray<NSNumber *> *> *sR = [NSMutableArray arrayWithCapacity:kMaxFrames];
+            double step = (double)images.count / (double)kMaxFrames;
+            for (NSUInteger i = 0; i < kMaxFrames; i++) {
+                NSUInteger idx = (NSUInteger)(i * step);
+                [sImg addObject:images[idx]];
+                [sY   addObject:yaws[idx]];
+                [sP   addObject:pitches[idx]];
+                [sR   addObject:rotations[idx]];
+            }
+            images    = sImg;
+            yaws      = sY;
+            pitches   = sP;
+            rotations = sR;
+        }
 
-        UIImage *result = [OpenCVWrapper stitchPanorama:images];
+        // ── 2.  Equirectangular compositing with progress ────────────────
+        double hFov = [shots[0][@"hFov"] doubleValue];
+        if (hFov <= 0) hFov = 43.0;
+
+        NSLog(@"[Stitch] Compositing %lu frames (hFov=%.0f°)…",
+              (unsigned long)images.count, hFov);
+
+        [self sendEventWithName:@"stitchProgress" body:@{
+            @"phase":   @"compositing",
+            @"current": @(0),
+            @"total":   @(images.count),
+        }];
+
+        UIImage *result = [OpenCVWrapper compositeEquirect:images
+                                                      yaws:yaws
+                                                   pitches:pitches
+                                                      hFov:hFov
+                                               canvasWidth:4096
+                                              canvasHeight:2048
+                                                 rotations:rotations
+                                                  progress:^(NSUInteger current, NSUInteger total) {
+            [self sendEventWithName:@"stitchProgress" body:@{
+                @"phase":   @"compositing",
+                @"current": @(current),
+                @"total":   @(total),
+            }];
+        }];
 
         if (!result) {
             reject(@"COMPOSE_ERROR",
-                   @"OpenCV Stitcher failed – not enough overlap or features between images. "
-                   @"Try capturing with more overlap between frames.",
+                   @"Equirectangular compositing failed.",
                    nil);
             return;
         }
 
-        NSLog(@"[Stitch] SUCCESS: %.0fx%.0f", result.size.width, result.size.height);
-
         // ── 3.  Write JPEG ───────────────────────────────────────────────
+        [self sendEventWithName:@"stitchProgress" body:@{
+            @"phase":   @"saving",
+            @"current": @(1),
+            @"total":   @(1),
+        }];
+
         NSData *jpeg = UIImageJPEGRepresentation(result, 0.92);
         if (!jpeg) {
             reject(@"COMPOSE_ERROR", @"JPEG encoding returned nil.", nil);

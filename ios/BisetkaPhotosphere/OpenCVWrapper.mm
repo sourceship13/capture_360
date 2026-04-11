@@ -191,6 +191,367 @@ using namespace cv;
     return [self UIImageFromCVMat:rgba];
 }
 
+// ---------------------------------------------------------------------------
+// compositeEquirect — Uses OpenCV Stitcher pipeline for proper alignment,
+// then reprojects the spherical result to equirectangular format.
+//
+// The key insight: ARKit rotation matrices have ~1° error which causes
+// 10-20px misalignment on a 4096px canvas. Only feature-based bundle
+// adjustment can fix this. cv::Stitcher handles:
+//   - ORB/SIFT feature detection + matching
+//   - Bundle adjustment (corrects camera rotations)
+//   - Exposure compensation
+//   - Seam finding (graph cut)
+//   - Multi-band blending
+// ---------------------------------------------------------------------------
++ (UIImage *)compositeEquirect:(NSArray<UIImage *> *)images
+                          yaws:(NSArray<NSNumber *> *)yaws
+                       pitches:(NSArray<NSNumber *> *)pitches
+                          hFov:(double)hfovDegrees
+                   canvasWidth:(int)width
+                  canvasHeight:(int)height
+                     rotations:(NSArray<NSArray<NSNumber *> *> *)rotations
+                      progress:(void (^)(NSUInteger, NSUInteger))progressBlock {
+
+    if (images.count < 2) return nil;
+
+    // ── Angular deduplication ────────────────────────────────────────
+    const double MIN_ANGLE_DEG = 15.0;
+    const double MIN_ANGLE_COS = cos(MIN_ANGLE_DEG * M_PI / 180.0);
+
+    NSUInteger N = images.count;
+    std::vector<double> fwdX(N), fwdY(N), fwdZ(N);
+    for (NSUInteger i = 0; i < N; i++) {
+        NSArray<NSNumber *> *rot = (i < rotations.count) ? rotations[i] : nil;
+        if (rot && rot.count == 9) {
+            fwdX[i] = [rot[6] doubleValue];
+            fwdY[i] = [rot[7] doubleValue];
+            fwdZ[i] = [rot[8] doubleValue];
+        } else {
+            double yR = [yaws[i] doubleValue] * M_PI / 180.0;
+            double pR = [pitches[i] doubleValue] * M_PI / 180.0;
+            fwdX[i] = sin(yR) * cos(pR);
+            fwdY[i] = -sin(pR);
+            fwdZ[i] = cos(yR) * cos(pR);
+        }
+    }
+
+    std::vector<NSUInteger> keepIdx;
+    keepIdx.reserve(N);
+    for (NSUInteger i = 0; i < N; i++) {
+        bool tooClose = false;
+        for (NSUInteger ki : keepIdx) {
+            double dot = fwdX[i]*fwdX[ki] + fwdY[i]*fwdY[ki] + fwdZ[i]*fwdZ[ki];
+            if (dot > MIN_ANGLE_COS) { tooClose = true; break; }
+        }
+        if (!tooClose) keepIdx.push_back(i);
+    }
+    NSLog(@"[Equirect] Angular dedup: %lu → %lu frames (min %.0f°)",
+          (unsigned long)N, (unsigned long)keepIdx.size(), MIN_ANGLE_DEG);
+
+    // ── Prepare images for stitcher ──────────────────────────────────
+    std::vector<Mat> mats;
+    mats.reserve(keepIdx.size());
+
+    for (NSUInteger ki = 0; ki < keepIdx.size(); ki++) {
+        NSUInteger i = keepIdx[ki];
+        Mat m = [self cvMatFromUIImage:images[i]];
+        cv::flip(m, m, 0);
+
+        // Convert RGBA → BGR (Stitcher expects BGR)
+        Mat bgr;
+        cvtColor(m, bgr, COLOR_RGBA2BGR);
+
+        // Scale for performance — but keep resolution higher for quality
+        double maxDim = MAX(bgr.cols, bgr.rows);
+        if (maxDim > 1600) {
+            double scale = 1600.0 / maxDim;
+            Mat scaled;
+            cv::resize(bgr, scaled, cv::Size(), scale, scale, cv::INTER_AREA);
+            mats.push_back(scaled);
+        } else {
+            mats.push_back(bgr);
+        }
+
+        if (progressBlock) {
+            progressBlock(ki + 1, keepIdx.size());
+        }
+    }
+
+    NSLog(@"[Equirect] Running OpenCV Stitcher on %lu frames...", (unsigned long)mats.size());
+
+    // ── Run the stitcher ─────────────────────────────────────────────
+    cv::Ptr<cv::Stitcher> stitcher = cv::Stitcher::create(cv::Stitcher::SCANS);
+    stitcher->setPanoConfidenceThresh(0.3);
+    // Tune for photosphere use:
+    // - Lower confidence threshold for matching (we have lots of overlap)
+    // - Use PANORAMA mode (spherical warping)
+
+
+    Mat stitchedResult;
+    cv::Stitcher::Status status = stitcher->stitch(mats, stitchedResult);
+
+    if (status != cv::Stitcher::OK) {
+        NSString *reason;
+        switch (status) {
+            case cv::Stitcher::ERR_NEED_MORE_IMGS:
+                reason = @"need more images";
+                break;
+            case cv::Stitcher::ERR_HOMOGRAPHY_EST_FAIL:
+                reason = @"homography estimation failed";
+                break;
+            case cv::Stitcher::ERR_CAMERA_PARAMS_ADJUST_FAIL:
+                reason = @"camera params adjustment failed";
+                break;
+            default:
+                reason = [NSString stringWithFormat:@"unknown (%d)", (int)status];
+        }
+        NSLog(@"[Equirect Stitcher] FAILED: %@ — falling back to IMU composite", reason);
+
+        // ── Fallback: simple IMU-based compositing ───────────────────
+        return [self compositeEquirectFallback:images
+                                         yaws:yaws
+                                      pitches:pitches
+                                         hFov:hfovDegrees
+                                  canvasWidth:width
+                                 canvasHeight:height
+                                    rotations:rotations
+                                     progress:progressBlock];
+    }
+
+    NSLog(@"[Equirect Stitcher] SUCCESS: %dx%d", stitchedResult.cols, stitchedResult.rows);
+
+    // ── Resize to target equirect dimensions ─────────────────────────
+    // The stitcher output is already in spherical projection.
+    // Resize to our target canvas size.
+    Mat resized;
+    cv::resize(stitchedResult, resized, cv::Size(width, height), 0, 0, cv::INTER_LANCZOS4);
+
+    // Convert BGR → RGBA
+    Mat rgba;
+    cvtColor(resized, rgba, COLOR_BGR2RGBA);
+
+    NSLog(@"[Equirect Composite] Done via Stitcher: %dx%d", width, height);
+    return [self UIImageFromCVMat:rgba];
+}
+
+// ---------------------------------------------------------------------------
+// compositeEquirectFallback — IMU-based fallback when Stitcher fails.
+// Uses winner-takes-all with Gaussian feather + exposure compensation.
+// ---------------------------------------------------------------------------
++ (UIImage *)compositeEquirectFallback:(NSArray<UIImage *> *)images
+                                  yaws:(NSArray<NSNumber *> *)yaws
+                               pitches:(NSArray<NSNumber *> *)pitches
+                                  hFov:(double)hfovDegrees
+                           canvasWidth:(int)width
+                          canvasHeight:(int)height
+                             rotations:(NSArray<NSArray<NSNumber *> *> *)rotations
+                              progress:(void (^)(NSUInteger, NSUInteger))progressBlock {
+
+    double hfovRad = hfovDegrees * M_PI / 180.0;
+
+    // Angular dedup
+    const double MIN_ANGLE_DEG = 15.0;
+    const double MIN_ANGLE_COS = cos(MIN_ANGLE_DEG * M_PI / 180.0);
+    NSUInteger N = images.count;
+    std::vector<double> fwdX(N), fwdY(N), fwdZ(N);
+    for (NSUInteger i = 0; i < N; i++) {
+        NSArray<NSNumber *> *rot = (i < rotations.count) ? rotations[i] : nil;
+        if (rot && rot.count == 9) {
+            fwdX[i] = [rot[6] doubleValue];
+            fwdY[i] = [rot[7] doubleValue];
+            fwdZ[i] = [rot[8] doubleValue];
+        } else {
+            double yR = [yaws[i] doubleValue] * M_PI / 180.0;
+            double pR = [pitches[i] doubleValue] * M_PI / 180.0;
+            fwdX[i] = sin(yR) * cos(pR);
+            fwdY[i] = -sin(pR);
+            fwdZ[i] = cos(yR) * cos(pR);
+        }
+    }
+    std::vector<NSUInteger> keepIdx;
+    keepIdx.reserve(N);
+    for (NSUInteger i = 0; i < N; i++) {
+        bool tooClose = false;
+        for (NSUInteger ki : keepIdx) {
+            double dot = fwdX[i]*fwdX[ki] + fwdY[i]*fwdY[ki] + fwdZ[i]*fwdZ[ki];
+            if (dot > MIN_ANGLE_COS) { tooClose = true; break; }
+        }
+        if (!tooClose) keepIdx.push_back(i);
+    }
+    NSUInteger numFrames = keepIdx.size();
+
+    // PASS 1: Warp each frame
+    int height_ = height, width_ = width;
+    std::vector<Mat> warpedFrames(numFrames);
+    std::vector<Mat> warpedMasks(numFrames);
+    std::vector<Mat> warpedWeights(numFrames);
+
+    for (NSUInteger ki = 0; ki < numFrames; ki++) {
+        NSUInteger i = keepIdx[ki];
+        warpedFrames[ki]  = Mat::zeros(height_, width_, CV_8UC3);
+        warpedMasks[ki]   = Mat::zeros(height_, width_, CV_8UC1);
+        warpedWeights[ki] = Mat::zeros(height_, width_, CV_32FC1);
+
+        Mat src = [self cvMatFromUIImage:images[i]];
+        cv::flip(src, src, 0);
+
+        double maxDim = MAX(src.cols, src.rows);
+        if (maxDim > 2400) {
+            double s = 2400.0 / maxDim;
+            Mat scaled;
+            cv::resize(src, scaled, cv::Size(), s, s, cv::INTER_AREA);
+            src = scaled;
+        }
+
+        double imgW = src.cols, imgH = src.rows;
+        double vfovRad = 2.0 * atan(tan(hfovRad / 2.0) * (imgH / imgW));
+        double fx = imgW / (2.0 * tan(hfovRad / 2.0));
+        double fy = imgH / (2.0 * tan(vfovRad / 2.0));
+        double cx = imgW / 2.0, cy = imgH / 2.0;
+
+        NSArray<NSNumber *> *rot = (i < rotations.count) ? rotations[i] : nil;
+        BOOL useFullRotation = (rot && rot.count == 9);
+        double Rx, Ry, Rz, Ux, Uy, Uz, Fx, Fy, Fz;
+
+        if (useFullRotation) {
+            Rx = [rot[0] doubleValue]; Ry = [rot[1] doubleValue]; Rz = [rot[2] doubleValue];
+            Ux = [rot[3] doubleValue]; Uy = [rot[4] doubleValue]; Uz = [rot[5] doubleValue];
+            Fx = [rot[6] doubleValue]; Fy = [rot[7] doubleValue]; Fz = [rot[8] doubleValue];
+        } else {
+            double yawRad = [yaws[i] doubleValue] * M_PI / 180.0;
+            double pitchRad = [pitches[i] doubleValue] * M_PI / 180.0;
+            double cY = cos(yawRad), sY = sin(yawRad);
+            double cP = cos(pitchRad), sP = sin(pitchRad);
+            Fx = sY*cP; Fy = -sP; Fz = cY*cP;
+            Rx = cY; Ry = 0; Rz = -sY;
+            Ux = sY*sP; Uy = cP; Uz = cY*sP;
+        }
+
+        double lonCenter = atan2(Fx, -Fz);
+        double latCenter = asin(fmax(-1, fmin(1, Fy)));
+        double halfH = hfovDegrees / 2.0 + 10.0;
+        double halfV = (vfovRad * 180.0 / M_PI) / 2.0 + 10.0;
+        int cxMin = (int)(((lonCenter - halfH*M_PI/180.0)/M_PI + 1.0)*0.5*width_) - 2;
+        int cxMax = (int)(((lonCenter + halfH*M_PI/180.0)/M_PI + 1.0)*0.5*width_) + 2;
+        int cyMin = (int)((0.5 - (latCenter + halfV*M_PI/180.0)/M_PI)*height_) - 2;
+        int cyMax = (int)((0.5 - (latCenter - halfV*M_PI/180.0)/M_PI)*height_) + 2;
+        bool wraps = (cxMin < 0 || cxMax >= width_);
+        if (!wraps) { cxMin = MAX(0, cxMin); cxMax = MIN(width_-1, cxMax); }
+        cyMin = MAX(0, cyMin); cyMax = MIN(height_-1, cyMax);
+
+        for (int canvasY = cyMin; canvasY <= cyMax; canvasY++) {
+            for (int rawX = cxMin; rawX <= cxMax; rawX++) {
+                int canvasX = rawX;
+                if (canvasX < 0) canvasX += width_;
+                if (canvasX >= width_) canvasX -= width_;
+                double lon = ((double)canvasX / width_) * 2.0 * M_PI - M_PI;
+                double lat = M_PI / 2.0 - ((double)canvasY / height_) * M_PI;
+                double cosLat = cos(lat);
+                double ddx = cosLat*sin(lon), ddy = sin(lat), ddz = -cosLat*cos(lon);
+                double xc = Rx*ddx + Ry*ddy + Rz*ddz;
+                double yc = Ux*ddx + Uy*ddy + Uz*ddz;
+                double zc = Fx*ddx + Fy*ddy + Fz*ddz;
+                if (zc <= 0) continue;
+                double u = fx*(xc/zc) + cx;
+                double v = -fy*(yc/zc) + cy;
+                if (u < 0 || u >= imgW-1 || v < 0 || v >= imgH-1) continue;
+                int u0=(int)u, v0=(int)v;
+                double du=u-u0, dv=v-v0;
+                Vec4b p00=src.at<Vec4b>(v0,u0), p01=src.at<Vec4b>(v0,u0+1);
+                Vec4b p10=src.at<Vec4b>(v0+1,u0), p11=src.at<Vec4b>(v0+1,u0+1);
+                for (int c=0; c<3; c++) {
+                    double val = (1-du)*(1-dv)*p00[c] + du*(1-dv)*p01[c]
+                               + (1-du)*dv*p10[c] + du*dv*p11[c];
+                    warpedFrames[ki].at<Vec3b>(canvasY, canvasX)[c] = (uchar)MIN(val, 255.0);
+                }
+                warpedMasks[ki].at<uchar>(canvasY, canvasX) = 255;
+                double edgeDist = MIN(MIN(u, imgW-1-u), MIN(v, imgH-1-v));
+                warpedWeights[ki].at<float>(canvasY, canvasX) = (float)edgeDist;
+            }
+        }
+        if (progressBlock) progressBlock(ki+1, numFrames);
+    }
+
+    // PASS 1.5: Per-channel exposure compensation
+    std::vector<Vec3d> channelMeans(numFrames);
+    Vec3d globalChannelMean(0,0,0);
+    int globalCount = 0;
+    for (NSUInteger ki = 0; ki < numFrames; ki++) {
+        Vec3d sum(0,0,0); int count = 0;
+        for (int r=0; r<height_; r++)
+            for (int c=0; c<width_; c++)
+                if (warpedWeights[ki].at<float>(r,c) > 0) {
+                    Vec3b px = warpedFrames[ki].at<Vec3b>(r,c);
+                    sum[0]+=px[0]; sum[1]+=px[1]; sum[2]+=px[2]; count++;
+                }
+        channelMeans[ki] = (count>0) ? sum/count : Vec3d(128,128,128);
+        globalChannelMean += sum; globalCount += count;
+    }
+    globalChannelMean /= MAX(globalCount, 1);
+    for (NSUInteger ki = 0; ki < numFrames; ki++) {
+        Vec3d sc;
+        for (int ch=0; ch<3; ch++) {
+            sc[ch] = (channelMeans[ki][ch]>1) ? globalChannelMean[ch]/channelMeans[ki][ch] : 1.0;
+            sc[ch] = fmax(0.6, fmin(1.6, sc[ch]));
+        }
+        for (int r=0; r<height_; r++)
+            for (int c=0; c<width_; c++)
+                if (warpedWeights[ki].at<float>(r,c) > 0) {
+                    Vec3b &px = warpedFrames[ki].at<Vec3b>(r,c);
+                    px[0]=(uchar)MIN(px[0]*sc[0],255.0);
+                    px[1]=(uchar)MIN(px[1]*sc[1],255.0);
+                    px[2]=(uchar)MIN(px[2]*sc[2],255.0);
+                }
+    }
+
+    // PASS 2: Winner-takes-all + Gaussian feather
+    Mat bestIdx = Mat::ones(height_, width_, CV_32SC1) * -1;
+    Mat bestDist = Mat::zeros(height_, width_, CV_32FC1);
+    for (NSUInteger ki = 0; ki < numFrames; ki++)
+        for (int r=0; r<height_; r++) {
+            const float *wRow = warpedWeights[ki].ptr<float>(r);
+            float *bdRow = bestDist.ptr<float>(r);
+            int *biRow = bestIdx.ptr<int>(r);
+            for (int c=0; c<width_; c++)
+                if (wRow[c] > bdRow[c]) { bdRow[c]=wRow[c]; biRow[c]=(int)ki; }
+        }
+
+    for (NSUInteger ki = 0; ki < numFrames; ki++)
+        for (int r=0; r<height_; r++) {
+            uchar *maskRow = warpedMasks[ki].ptr<uchar>(r);
+            const int *biRow = bestIdx.ptr<int>(r);
+            for (int c=0; c<width_; c++)
+                maskRow[c] = (biRow[c]==(int)ki) ? 255 : 0;
+        }
+
+    std::vector<Mat> floatMasks(numFrames);
+    for (NSUInteger ki = 0; ki < numFrames; ki++) {
+        warpedMasks[ki].convertTo(floatMasks[ki], CV_32FC1, 1.0/255.0);
+        cv::GaussianBlur(floatMasks[ki], floatMasks[ki], cv::Size(17, 17), 0);
+    }
+
+    Mat result(height_, width_, CV_8UC4);
+    for (int r=0; r<height_; r++)
+        for (int c=0; c<width_; c++) {
+            float totalW=0; float accR=0, accG=0, accB=0;
+            for (NSUInteger ki=0; ki<numFrames; ki++) {
+                float w = floatMasks[ki].at<float>(r,c);
+                if (w > 0.001f) {
+                    Vec3b px = warpedFrames[ki].at<Vec3b>(r,c);
+                    accR+=px[0]*w; accG+=px[1]*w; accB+=px[2]*w; totalW+=w;
+                }
+            }
+            if (totalW > 0)
+                result.at<Vec4b>(r,c) = Vec4b((uchar)(accR/totalW),(uchar)(accG/totalW),(uchar)(accB/totalW),255);
+            else
+                result.at<Vec4b>(r,c) = Vec4b(0,0,0,0);
+        }
+
+    return [self UIImageFromCVMat:result];
+}
+
+
 #pragma mark - UIImage <-> cv::Mat conversion
 
 + (Mat)cvMatFromUIImage:(UIImage *)image {

@@ -79,6 +79,25 @@ static inline float CLAMP(float x, float lo, float hi) {
     }
     _lastFrameCapture = 0;
 
+    // Lock exposure + white balance using Custom mode (works with ARKit)
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithDeviceType:AVCaptureDeviceTypeBuiltInWideAngleCamera
+                                                                    mediaType:AVMediaTypeVideo
+                                                                     position:AVCaptureDevicePositionBack];
+        if (device && [device lockForConfiguration:nil]) {
+            if ([device isExposureModeSupported:AVCaptureExposureModeCustom]) {
+                CMTime duration = device.exposureDuration;
+                float iso = device.ISO;
+                [device setExposureModeCustomWithDuration:duration ISO:iso completionHandler:nil];
+                NSLog(@"[ARCameraView] Custom exposure locked: ISO=%.0f duration=%.4fs", iso, CMTimeGetSeconds(duration));
+            }
+            if ([device isWhiteBalanceModeSupported:AVCaptureWhiteBalanceModeLocked]) {
+                device.whiteBalanceMode = AVCaptureWhiteBalanceModeLocked;
+            }
+            [device unlockForConfiguration];
+        }
+    });
+
     NSString *docsDir = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
     _sessionDir = [docsDir stringByAppendingPathComponent:
                    [NSString stringWithFormat:@"photosphere_%@", [[NSUUID UUID] UUIDString]]];
@@ -89,6 +108,20 @@ static inline float CLAMP(float x, float lo, float hi) {
 }
 
 - (void)endFrameCapture {
+    // Unlock exposure + white balance
+    AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
+    if (device) {
+        NSError *err;
+        if ([device lockForConfiguration:&err]) {
+            if ([device isExposureModeSupported:AVCaptureExposureModeContinuousAutoExposure])
+                device.exposureMode = AVCaptureExposureModeContinuousAutoExposure;
+            if ([device isWhiteBalanceModeSupported:AVCaptureWhiteBalanceModeContinuousAutoWhiteBalance])
+                device.whiteBalanceMode = AVCaptureWhiteBalanceModeContinuousAutoWhiteBalance;
+            [device unlockForConfiguration];
+            NSLog(@"[ARCameraView] Exposure + WB unlocked");
+        }
+    }
+
     NSArray *frames;
     @synchronized (_capturedFrames) {
         frames = [_capturedFrames copy];
@@ -149,12 +182,29 @@ static inline float CLAMP(float x, float lo, float hi) {
         CGImageRef cgImage = [_ciContext createCGImage:ciImage fromRect:ciImage.extent];
         if (!cgImage) return;
 
-        // Sensor is landscape-right; tag as Right so NormaliseOrientation
-        // rotates pixels to correct portrait orientation before warping.
+        // Keep native landscape orientation — the pinhole projection math
+        // assumes camera X→image horizontal, Y→image vertical, which only
+        // holds for the sensor's native landscape layout.
         UIImage *image = [UIImage imageWithCGImage:cgImage
                                              scale:1.0
-                                       orientation:UIImageOrientationRight];
+                                       orientation:UIImageOrientationUp];
         CGImageRelease(cgImage);
+
+        // Extract actual HFOV from ARKit camera intrinsics
+        simd_float3x3 K = frame.camera.intrinsics;
+        CGSize res = frame.camera.imageResolution;
+        float fx_intrinsic = K.columns[0][0];
+        float hFovDeg = 2.0f * atan2f((float)res.width, 2.0f * fx_intrinsic) * 180.0f / M_PI;
+
+        // Build camera-to-world rotation with forward=+Z convention:
+        //   right   = t.columns[0].xyz  (camera +X in world)
+        //   up      = t.columns[1].xyz  (camera +Y in world)
+        //   forward = -t.columns[2].xyz (camera looks along -Z, negate for +Z)
+        NSArray *rotMatrix = @[
+            @(t.columns[0][0]), @(t.columns[0][1]), @(t.columns[0][2]),  // right
+            @(t.columns[1][0]), @(t.columns[1][1]), @(t.columns[1][2]),  // up
+            @(-t.columns[2][0]), @(-t.columns[2][1]), @(-t.columns[2][2]) // forward
+        ];
 
         int idx;
         @synchronized (_capturedFrames) {
@@ -171,6 +221,8 @@ static inline float CLAMP(float x, float lo, float hi) {
             @"yaw":       @(yaw),
             @"pitch":     @(pitch),
             @"roll":      @(roll),
+            @"hFov":      @(hFovDeg),
+            @"rotationMatrix": rotMatrix,
             @"timestamp": @(now),
         };
 
@@ -178,7 +230,9 @@ static inline float CLAMP(float x, float lo, float hi) {
             [_capturedFrames addObject:entry];
         }
 
-        NSLog(@"[ARCameraView] Frame %d: yaw=%.1f° pitch=%.1f°", idx, yaw, pitch);
+        NSLog(@"[ARCameraView] Frame %d: yaw=%.1f° pitch=%.1f° hFov=%.1f° (%dx%d fx=%.0f)",
+              idx, yaw, pitch, hFovDeg,
+              (int)res.width, (int)res.height, fx_intrinsic);
     }
 }
 
