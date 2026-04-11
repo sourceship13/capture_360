@@ -216,7 +216,7 @@ using namespace cv;
     if (images.count < 2) return nil;
 
     // ── Angular deduplication ────────────────────────────────────────
-    const double MIN_ANGLE_DEG = 15.0;
+    const double MIN_ANGLE_DEG = 25.0;
     const double MIN_ANGLE_COS = cos(MIN_ANGLE_DEG * M_PI / 180.0);
 
     NSUInteger N = images.count;
@@ -281,7 +281,7 @@ using namespace cv;
     NSLog(@"[Equirect] Running OpenCV Stitcher on %lu frames...", (unsigned long)mats.size());
 
     // ── Run the stitcher ─────────────────────────────────────────────
-    cv::Ptr<cv::Stitcher> stitcher = cv::Stitcher::create(cv::Stitcher::SCANS);
+    cv::Ptr<cv::Stitcher> stitcher = cv::Stitcher::create(cv::Stitcher::PANORAMA);
     stitcher->setPanoConfidenceThresh(0.3);
     // Tune for photosphere use:
     // - Lower confidence threshold for matching (we have lots of overlap)
@@ -336,8 +336,11 @@ using namespace cv;
 }
 
 // ---------------------------------------------------------------------------
-// compositeEquirectFallback — IMU-based fallback when Stitcher fails.
-// Uses winner-takes-all with Gaussian feather + exposure compensation.
+// compositeEquirectFallback — IMU-based compositing with pairwise rotation
+// refinement. For each pair of overlapping frames, ORB features are matched
+// in the original camera images and a corrective rotation is computed from
+// the homography. This fixes the ~1° ARKit rotation errors that cause
+// visible steps at straight lines (ceilings, walls).
 // ---------------------------------------------------------------------------
 + (UIImage *)compositeEquirectFallback:(NSArray<UIImage *> *)images
                                   yaws:(NSArray<NSNumber *> *)yaws
@@ -350,8 +353,8 @@ using namespace cv;
 
     double hfovRad = hfovDegrees * M_PI / 180.0;
 
-    // Angular dedup
-    const double MIN_ANGLE_DEG = 15.0;
+    // ── Angular dedup ────────────────────────────────────────────────
+    const double MIN_ANGLE_DEG = 25.0;
     const double MIN_ANGLE_COS = cos(MIN_ANGLE_DEG * M_PI / 180.0);
     NSUInteger N = images.count;
     std::vector<double> fwdX(N), fwdY(N), fwdZ(N);
@@ -380,18 +383,22 @@ using namespace cv;
         if (!tooClose) keepIdx.push_back(i);
     }
     NSUInteger numFrames = keepIdx.size();
+    NSLog(@"[Equirect Fallback] %lu frames after dedup", (unsigned long)numFrames);
 
-    // PASS 1: Warp each frame
-    int height_ = height, width_ = width;
-    std::vector<Mat> warpedFrames(numFrames);
-    std::vector<Mat> warpedMasks(numFrames);
-    std::vector<Mat> warpedWeights(numFrames);
+    // ══════════════════════════════════════════════════════════════════
+    // STEP 0: Load all source images and extract rotation matrices
+    // ══════════════════════════════════════════════════════════════════
+    struct FrameData {
+        Mat src;         // original camera image (BGR, scaled)
+        double R[9];     // camera-to-world rotation: [Rx,Ry,Rz, Ux,Uy,Uz, Fx,Fy,Fz]
+        double fx, fy, cx, cy;
+        double imgW, imgH;
+    };
+    std::vector<FrameData> frames(numFrames);
 
     for (NSUInteger ki = 0; ki < numFrames; ki++) {
         NSUInteger i = keepIdx[ki];
-        warpedFrames[ki]  = Mat::zeros(height_, width_, CV_8UC3);
-        warpedMasks[ki]   = Mat::zeros(height_, width_, CV_8UC1);
-        warpedWeights[ki] = Mat::zeros(height_, width_, CV_32FC1);
+        FrameData &fd = frames[ki];
 
         Mat src = [self cvMatFromUIImage:images[i]];
         cv::flip(src, src, 0);
@@ -404,32 +411,205 @@ using namespace cv;
             src = scaled;
         }
 
-        double imgW = src.cols, imgH = src.rows;
-        double vfovRad = 2.0 * atan(tan(hfovRad / 2.0) * (imgH / imgW));
-        double fx = imgW / (2.0 * tan(hfovRad / 2.0));
-        double fy = imgH / (2.0 * tan(vfovRad / 2.0));
-        double cx = imgW / 2.0, cy = imgH / 2.0;
+        // Convert to BGR for feature detection
+        Mat bgr;
+        cvtColor(src, bgr, COLOR_RGBA2BGR);
+        fd.src = bgr;
 
+        fd.imgW = src.cols;
+        fd.imgH = src.rows;
+        double vfovRad = 2.0 * atan(tan(hfovRad / 2.0) * (fd.imgH / fd.imgW));
+        fd.fx = fd.imgW / (2.0 * tan(hfovRad / 2.0));
+        fd.fy = fd.imgH / (2.0 * tan(vfovRad / 2.0));
+        fd.cx = fd.imgW / 2.0;
+        fd.cy = fd.imgH / 2.0;
+
+        // Extract rotation
         NSArray<NSNumber *> *rot = (i < rotations.count) ? rotations[i] : nil;
-        BOOL useFullRotation = (rot && rot.count == 9);
-        double Rx, Ry, Rz, Ux, Uy, Uz, Fx, Fy, Fz;
-
-        if (useFullRotation) {
-            Rx = [rot[0] doubleValue]; Ry = [rot[1] doubleValue]; Rz = [rot[2] doubleValue];
-            Ux = [rot[3] doubleValue]; Uy = [rot[4] doubleValue]; Uz = [rot[5] doubleValue];
-            Fx = [rot[6] doubleValue]; Fy = [rot[7] doubleValue]; Fz = [rot[8] doubleValue];
+        if (rot && rot.count == 9) {
+            for (int j = 0; j < 9; j++) fd.R[j] = [rot[j] doubleValue];
         } else {
             double yawRad = [yaws[i] doubleValue] * M_PI / 180.0;
             double pitchRad = [pitches[i] doubleValue] * M_PI / 180.0;
             double cY = cos(yawRad), sY = sin(yawRad);
             double cP = cos(pitchRad), sP = sin(pitchRad);
-            Fx = sY*cP; Fy = -sP; Fz = cY*cP;
-            Rx = cY; Ry = 0; Rz = -sY;
-            Ux = sY*sP; Uy = cP; Uz = cY*sP;
+            fd.R[0] = cY;    fd.R[1] = 0;   fd.R[2] = -sY;    // right
+            fd.R[3] = sY*sP; fd.R[4] = cP;  fd.R[5] = cY*sP;  // up
+            fd.R[6] = sY*cP; fd.R[7] = -sP; fd.R[8] = cY*cP;  // forward
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // STEP 1: Pairwise rotation refinement
+    //
+    // For each pair of frames with overlapping FOV, match ORB features
+    // and compute a homography. For pure-rotation cameras:
+    //   H = K2 * R_2to1 * K1^-1
+    // We extract R_2to1 and compare with the IMU-predicted relative
+    // rotation. The difference is applied as a correction.
+    //
+    // Frame 0 is the anchor. Each subsequent frame's rotation is
+    // refined relative to its best-overlapping already-refined frame.
+    // ══════════════════════════════════════════════════════════════════
+
+    auto orb = cv::ORB::create(1000);
+    cv::BFMatcher matcher(cv::NORM_HAMMING);
+
+    // Pre-detect features for all frames
+    std::vector<std::vector<cv::KeyPoint>> allKps(numFrames);
+    std::vector<Mat> allDescs(numFrames);
+    for (NSUInteger ki = 0; ki < numFrames; ki++) {
+        Mat gray;
+        cvtColor(frames[ki].src, gray, COLOR_BGR2GRAY);
+        orb->detectAndCompute(gray, cv::noArray(), allKps[ki], allDescs[ki]);
+    }
+
+    std::vector<bool> refined(numFrames, false);
+    refined[0] = true;  // Frame 0 is anchor
+
+    for (NSUInteger ki = 1; ki < numFrames; ki++) {
+        // Find best overlapping refined frame
+        int bestRef = -1;
+        double bestDot = -1;
+        for (NSUInteger rki = 0; rki < ki; rki++) {
+            if (!refined[rki]) continue;
+            // Dot product of forward vectors
+            double dot = frames[ki].R[6]*frames[rki].R[6]
+                       + frames[ki].R[7]*frames[rki].R[7]
+                       + frames[ki].R[8]*frames[rki].R[8];
+            if (dot > bestDot) { bestDot = dot; bestRef = (int)rki; }
         }
 
+        if (bestRef < 0 || bestDot < 0.3) {
+            refined[ki] = true;  // No good overlap, keep IMU rotation
+            continue;
+        }
+
+        // Match features
+        if (allDescs[ki].empty() || allDescs[bestRef].empty()) {
+            refined[ki] = true;
+            continue;
+        }
+
+        std::vector<std::vector<cv::DMatch>> knnMatches;
+        matcher.knnMatch(allDescs[bestRef], allDescs[ki], knnMatches, 2);
+
+        // Lowe's ratio test
+        std::vector<cv::Point2f> ptsA, ptsB;
+        for (auto &m : knnMatches) {
+            if (m.size() == 2 && m[0].distance < 0.7f * m[1].distance) {
+                ptsA.push_back(allKps[bestRef][m[0].queryIdx].pt);
+                ptsB.push_back(allKps[ki][m[0].trainIdx].pt);
+            }
+        }
+
+        if (ptsA.size() < 12) {
+            refined[ki] = true;
+            NSLog(@"[RotRefine] Frame %lu: only %lu matches, keeping IMU", (unsigned long)ki, (unsigned long)ptsA.size());
+            continue;
+        }
+
+        // Compute homography
+        Mat inlierMask;
+        Mat H = findHomography(ptsA, ptsB, cv::RANSAC, 3.0, inlierMask);
+        if (H.empty()) {
+            refined[ki] = true;
+            continue;
+        }
+
+        int inlierCount = countNonZero(inlierMask);
+        if (inlierCount < 10) {
+            refined[ki] = true;
+            NSLog(@"[RotRefine] Frame %lu: only %d inliers, keeping IMU", (unsigned long)ki, inlierCount);
+            continue;
+        }
+
+        // Extract rotation from H = K_B * R_AtoB * K_A^-1
+        // R_AtoB = K_B^-1 * H * K_A
+        FrameData &fA = frames[bestRef];
+        FrameData &fB = frames[ki];
+
+        Mat K_A = (Mat_<double>(3,3) << fA.fx, 0, fA.cx, 0, fA.fy, fA.cy, 0, 0, 1);
+        Mat K_B = (Mat_<double>(3,3) << fB.fx, 0, fB.cx, 0, fB.fy, fB.cy, 0, 0, 1);
+
+        Mat H64;
+        H.convertTo(H64, CV_64F);
+        Mat R_AtoB = K_B.inv() * H64 * K_A;
+
+        // Normalize to proper rotation (closest rotation matrix via SVD)
+        Mat W, U, Vt;
+        cv::SVDecomp(R_AtoB, W, U, Vt);
+        Mat R_clean = U * Vt;
+        double det = determinant(R_clean);
+        if (det < 0) {
+            R_clean = -R_clean;
+        }
+
+        // R_AtoB transforms points from A's camera space to B's camera space
+        // In world coordinates:
+        //   R_B_world = R_A_world * R_AtoB^T
+        // (because R_AtoB goes from A→B in camera space,
+        //  and our R matrices are camera-to-world)
+
+        // Build R_A as 3x3 Mat (camera-to-world, rows = right/up/forward)
+        Mat R_A_w = (Mat_<double>(3,3) <<
+            fA.R[0], fA.R[1], fA.R[2],
+            fA.R[3], fA.R[4], fA.R[5],
+            fA.R[6], fA.R[7], fA.R[8]);
+
+        // Corrected world rotation for frame B
+        Mat R_B_corrected = R_A_w * R_clean.t();
+
+        // Extract back to our format
+        fB.R[0] = R_B_corrected.at<double>(0,0);
+        fB.R[1] = R_B_corrected.at<double>(0,1);
+        fB.R[2] = R_B_corrected.at<double>(0,2);
+        fB.R[3] = R_B_corrected.at<double>(1,0);
+        fB.R[4] = R_B_corrected.at<double>(1,1);
+        fB.R[5] = R_B_corrected.at<double>(1,2);
+        fB.R[6] = R_B_corrected.at<double>(2,0);
+        fB.R[7] = R_B_corrected.at<double>(2,1);
+        fB.R[8] = R_B_corrected.at<double>(2,2);
+
+        refined[ki] = true;
+        NSLog(@"[RotRefine] Frame %lu refined from %d (%d inliers, %.1f° overlap)",
+              (unsigned long)ki, bestRef, inlierCount, acos(fmin(1.0, bestDot))*180/M_PI);
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // STEP 2: Warp each frame with corrected rotations
+    // ══════════════════════════════════════════════════════════════════
+    int height_ = height, width_ = width;
+    std::vector<Mat> warpedFrames(numFrames);
+    std::vector<Mat> warpedMasks(numFrames);
+    std::vector<Mat> warpedWeights(numFrames);
+
+    for (NSUInteger ki = 0; ki < numFrames; ki++) {
+        warpedFrames[ki]  = Mat::zeros(height_, width_, CV_8UC3);
+        warpedMasks[ki]   = Mat::zeros(height_, width_, CV_8UC1);
+        warpedWeights[ki] = Mat::zeros(height_, width_, CV_32FC1);
+
+        FrameData &fd = frames[ki];
+        // Use the RGBA source (not BGR) for warping
+        NSUInteger i = keepIdx[ki];
+        Mat src = [self cvMatFromUIImage:images[i]];
+        cv::flip(src, src, 0);
+        double maxDim = MAX(src.cols, src.rows);
+        if (maxDim > 2400) {
+            double s = 2400.0 / maxDim;
+            Mat scaled;
+            cv::resize(src, scaled, cv::Size(), s, s, cv::INTER_AREA);
+            src = scaled;
+        }
+
+        double Rx = fd.R[0], Ry = fd.R[1], Rz = fd.R[2];
+        double Ux = fd.R[3], Uy = fd.R[4], Uz = fd.R[5];
+        double Fx = fd.R[6], Fy = fd.R[7], Fz = fd.R[8];
+
+        // Bounding box
         double lonCenter = atan2(Fx, -Fz);
         double latCenter = asin(fmax(-1, fmin(1, Fy)));
+        double vfovRad = 2.0 * atan(tan(hfovRad / 2.0) * (fd.imgH / fd.imgW));
         double halfH = hfovDegrees / 2.0 + 10.0;
         double halfV = (vfovRad * 180.0 / M_PI) / 2.0 + 10.0;
         int cxMin = (int)(((lonCenter - halfH*M_PI/180.0)/M_PI + 1.0)*0.5*width_) - 2;
@@ -445,17 +625,21 @@ using namespace cv;
                 int canvasX = rawX;
                 if (canvasX < 0) canvasX += width_;
                 if (canvasX >= width_) canvasX -= width_;
+
                 double lon = ((double)canvasX / width_) * 2.0 * M_PI - M_PI;
                 double lat = M_PI / 2.0 - ((double)canvasY / height_) * M_PI;
                 double cosLat = cos(lat);
-                double ddx = cosLat*sin(lon), ddy = sin(lat), ddz = -cosLat*cos(lon);
-                double xc = Rx*ddx + Ry*ddy + Rz*ddz;
-                double yc = Ux*ddx + Uy*ddy + Uz*ddz;
-                double zc = Fx*ddx + Fy*ddy + Fz*ddz;
+                double dx = cosLat*sin(lon), dy = sin(lat), dz = -cosLat*cos(lon);
+
+                double xc = Rx*dx + Ry*dy + Rz*dz;
+                double yc = Ux*dx + Uy*dy + Uz*dz;
+                double zc = Fx*dx + Fy*dy + Fz*dz;
                 if (zc <= 0) continue;
-                double u = fx*(xc/zc) + cx;
-                double v = -fy*(yc/zc) + cy;
-                if (u < 0 || u >= imgW-1 || v < 0 || v >= imgH-1) continue;
+
+                double u = fd.fx*(xc/zc) + fd.cx;
+                double v = -fd.fy*(yc/zc) + fd.cy;
+                if (u < 0 || u >= fd.imgW-1 || v < 0 || v >= fd.imgH-1) continue;
+
                 int u0=(int)u, v0=(int)v;
                 double du=u-u0, dv=v-v0;
                 Vec4b p00=src.at<Vec4b>(v0,u0), p01=src.at<Vec4b>(v0,u0+1);
@@ -466,14 +650,17 @@ using namespace cv;
                     warpedFrames[ki].at<Vec3b>(canvasY, canvasX)[c] = (uchar)MIN(val, 255.0);
                 }
                 warpedMasks[ki].at<uchar>(canvasY, canvasX) = 255;
-                double edgeDist = MIN(MIN(u, imgW-1-u), MIN(v, imgH-1-v));
+                double edgeDist = MIN(MIN(u, fd.imgW-1-u), MIN(v, fd.imgH-1-v));
                 warpedWeights[ki].at<float>(canvasY, canvasX) = (float)edgeDist;
             }
         }
         if (progressBlock) progressBlock(ki+1, numFrames);
+        NSLog(@"[Equirect Fallback] Warped frame %lu/%lu", (unsigned long)(ki+1), (unsigned long)numFrames);
     }
 
-    // PASS 1.5: Per-channel exposure compensation
+    // ══════════════════════════════════════════════════════════════════
+    // STEP 3: Per-channel exposure compensation
+    // ══════════════════════════════════════════════════════════════════
     std::vector<Vec3d> channelMeans(numFrames);
     Vec3d globalChannelMean(0,0,0);
     int globalCount = 0;
@@ -505,7 +692,9 @@ using namespace cv;
                 }
     }
 
-    // PASS 2: Winner-takes-all + Gaussian feather
+    // ══════════════════════════════════════════════════════════════════
+    // STEP 4: Winner-takes-all + Gaussian feather
+    // ══════════════════════════════════════════════════════════════════
     Mat bestIdx = Mat::ones(height_, width_, CV_32SC1) * -1;
     Mat bestDist = Mat::zeros(height_, width_, CV_32FC1);
     for (NSUInteger ki = 0; ki < numFrames; ki++)
@@ -548,6 +737,7 @@ using namespace cv;
                 result.at<Vec4b>(r,c) = Vec4b(0,0,0,0);
         }
 
+    NSLog(@"[Equirect Fallback] Done: %dx%d (%lu frames)", width_, height_, (unsigned long)numFrames);
     return [self UIImageFromCVMat:result];
 }
 

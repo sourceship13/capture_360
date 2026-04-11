@@ -171,20 +171,19 @@ static inline float CLAMP(float x, float lo, float hi) {
         }
     }
 
-    // --- Capture frames at ~2 fps while recording ---
-    if (_isRecording && (now - _lastFrameCapture >= 0.5)) {
+    // --- Capture frames at ~1 fps while recording ---
+    if (_isRecording && (now - _lastFrameCapture >= 1.0)) {
         _lastFrameCapture = now;
 
         CVPixelBufferRef pixelBuffer = frame.capturedImage;
         if (!pixelBuffer) return;
 
+        CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
         CIImage *ciImage = [CIImage imageWithCVPixelBuffer:pixelBuffer];
         CGImageRef cgImage = [_ciContext createCGImage:ciImage fromRect:ciImage.extent];
+        CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
         if (!cgImage) return;
 
-        // Keep native landscape orientation — the pinhole projection math
-        // assumes camera X→image horizontal, Y→image vertical, which only
-        // holds for the sensor's native landscape layout.
         UIImage *image = [UIImage imageWithCGImage:cgImage
                                              scale:1.0
                                        orientation:UIImageOrientationUp];
@@ -196,14 +195,10 @@ static inline float CLAMP(float x, float lo, float hi) {
         float fx_intrinsic = K.columns[0][0];
         float hFovDeg = 2.0f * atan2f((float)res.width, 2.0f * fx_intrinsic) * 180.0f / M_PI;
 
-        // Build camera-to-world rotation with forward=+Z convention:
-        //   right   = t.columns[0].xyz  (camera +X in world)
-        //   up      = t.columns[1].xyz  (camera +Y in world)
-        //   forward = -t.columns[2].xyz (camera looks along -Z, negate for +Z)
         NSArray *rotMatrix = @[
-            @(t.columns[0][0]), @(t.columns[0][1]), @(t.columns[0][2]),  // right
-            @(t.columns[1][0]), @(t.columns[1][1]), @(t.columns[1][2]),  // up
-            @(-t.columns[2][0]), @(-t.columns[2][1]), @(-t.columns[2][2]) // forward
+            @(t.columns[0][0]), @(t.columns[0][1]), @(t.columns[0][2]),
+            @(t.columns[1][0]), @(t.columns[1][1]), @(t.columns[1][2]),
+            @(-t.columns[2][0]), @(-t.columns[2][1]), @(-t.columns[2][2])
         ];
 
         int idx;
@@ -213,7 +208,7 @@ static inline float CLAMP(float x, float lo, float hi) {
 
         NSString *framePath = [_sessionDir stringByAppendingPathComponent:
                                [NSString stringWithFormat:@"frame_%04d.jpg", idx]];
-        NSData *jpegData = UIImageJPEGRepresentation(image, 0.9);
+        NSData *jpegData = UIImageJPEGRepresentation(image, 0.95);
         [jpegData writeToFile:framePath atomically:YES];
 
         NSDictionary *entry = @{
