@@ -14,6 +14,8 @@ export interface VideoFrame {
 }
 
 export interface CoverageGrid {
+  row: number;
+  col: number;
   yaw: number;
   pitch: number;
   covered: boolean;
@@ -33,15 +35,17 @@ const MIN_COVERAGE_THRESHOLD = 15; // degrees - mark grid cell as covered if cam
 function generateCoverageGrid(): CoverageGrid[] {
   const grid: CoverageGrid[] = [];
   
+  let row = 0;
   // Pitch levels from -90° to +90° every 30°
   for (let pitch = -90; pitch <= 90; pitch += GRID_RESOLUTION) {
     // Yaw positions - fewer at poles, more at equator
     const numYawPositions = pitch === 90 || pitch === -90 ? 1 : Math.ceil(360 / GRID_RESOLUTION);
     
-    for (let i = 0; i < numYawPositions; i++) {
-      const yaw = (i * 360 / numYawPositions) - 180;
-      grid.push({yaw, pitch, covered: false});
+    for (let col = 0; col < numYawPositions; col++) {
+      const yaw = (col * 360 / numYawPositions) - 180;
+      grid.push({row, col, yaw, pitch, covered: false});
     }
+    row++;
   }
   
   return grid;
@@ -52,6 +56,24 @@ function angularDistance(yaw1: number, pitch1: number, yaw2: number, pitch2: num
   const dYaw = Math.abs(yaw1 - yaw2);
   const dPitch = Math.abs(pitch1 - pitch2);
   return Math.sqrt(dYaw * dYaw + dPitch * dPitch);
+}
+
+// Find the nearest grid cell to a given (yaw, pitch)
+export function findNearestCell(
+  yaw: number,
+  pitch: number,
+  grid: CoverageGrid[],
+): {row: number; col: number; targetYaw: number; targetPitch: number} {
+  let best = grid[0];
+  let bestDist = Infinity;
+  for (const cell of grid) {
+    const d = angularDistance(yaw, pitch, cell.yaw, cell.pitch);
+    if (d < bestDist) {
+      bestDist = d;
+      best = cell;
+    }
+  }
+  return {row: best.row, col: best.col, targetYaw: best.yaw, targetPitch: best.pitch};
 }
 
 export function useVideoCapture() {

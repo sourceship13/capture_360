@@ -35,4 +35,19 @@ RCT_EXPORT_METHOD(captureFrame:(nonnull NSNumber *)reactTag) {
     }];
 }
 
+RCT_EXPORT_METHOD(captureFrameWithGrid:(nonnull NSNumber *)reactTag
+                               gridRow:(int)gridRow
+                               gridCol:(int)gridCol
+                             targetYaw:(double)targetYaw
+                           targetPitch:(double)targetPitch) {
+    [self.bridge.uiManager addUIBlock:^(RCTUIManager *uiManager, NSDictionary<NSNumber *, UIView *> *viewRegistry) {
+        ARCameraView *view = (ARCameraView *)viewRegistry[reactTag];
+        if ([view isKindOfClass:[ARCameraView class]]) {
+            [view captureFrameWithGridRow:gridRow gridCol:gridCol targetYaw:targetYaw targetPitch:targetPitch];
+        } else {
+            NSLog(@"[ARCameraViewManager] captureFrameWithGrid: invalid view for tag %@", reactTag);
+        }
+    }];
+}
+
 @end

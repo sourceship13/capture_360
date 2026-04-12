@@ -396,6 +396,7 @@ using namespace cv;
             fd.R[3] = sY*sP; fd.R[4] = cP;  fd.R[5] = cY*sP;  // up
             fd.R[6] = sY*cP; fd.R[7] = -sP; fd.R[8] = cY*cP;  // forward
         }
+
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -431,10 +432,7 @@ using namespace cv;
             cv::resize(src, scaled, cv::Size(), s, s, cv::INTER_AREA);
             src = scaled;
         }
-        // cv::flip(src, src, 1);  // 1 = horizontal flip
-        // cv::flip(src, src, 0);  // vertical flip (add this line)
-
-
+        cv::flip(src, src, -1);  // rotate 180° (flip both axes)
         double Rx = fd.R[0], Ry = fd.R[1], Rz = fd.R[2];
         double Ux = fd.R[3], Uy = fd.R[4], Uz = fd.R[5];
         double Fx = fd.R[6], Fy = fd.R[7], Fz = fd.R[8];
@@ -469,7 +467,7 @@ using namespace cv;
                 double cosLat = cos(lat);
                 double dx = cosLat*sin(lon), dy = sin(lat), dz = cosLat*cos(lon);
 
-                double xc = Rx*dx + Ry*dy + Rz*dz;
+                double xc = -(Rx*dx + Ry*dy + Rz*dz);
                 double yc = Ux*dx + Uy*dy + Uz*dz;
                 double zc = Fx*dx + Fy*dy + Fz*dz;
                 if (zc <= 0) continue;
@@ -559,7 +557,7 @@ using namespace cv;
 
     // Narrow feather
     for (NSUInteger ki = 0; ki < numFrames; ki++)
-        GaussianBlur(winMasks[ki], winMasks[ki], cv::Size(7, 7), 0);
+        GaussianBlur(winMasks[ki], winMasks[ki], cv::Size(21, 21), 0);
 
     // Normalize
     Mat maskSum = Mat::zeros(height_, width_, CV_32FC1);
@@ -597,12 +595,14 @@ using namespace cv;
 #pragma mark - UIImage <-> cv::Mat conversion
 
 + (Mat)cvMatFromUIImage:(UIImage *)image {
-    CGColorSpaceRef colorSpace = CGImageGetColorSpace(image.CGImage);
-    CGFloat cols = image.size.width;
-    CGFloat rows = image.size.height;
-    
-    Mat cvMat(rows, cols, CV_8UC4);
-    
+    CGImageRef imageRef = image.CGImage;
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+
+    size_t cols = CGImageGetWidth(imageRef);
+    size_t rows = CGImageGetHeight(imageRef);
+
+    Mat cvMat((int)rows, (int)cols, CV_8UC4);
+
     CGContextRef context = CGBitmapContextCreate(cvMat.data,
                                                  cols,
                                                  rows,
@@ -610,15 +610,14 @@ using namespace cv;
                                                  cvMat.step[0],
                                                  colorSpace,
                                                  kCGImageAlphaPremultipliedLast | kCGBitmapByteOrderDefault);
-    
-    // Flip Y in-context: CG origin is bottom-left, OpenCV row 0 is top.
-    // This eliminates the need for cv::flip after every cvMatFromUIImage call.
+
     CGContextTranslateCTM(context, 0, rows);
     CGContextScaleCTM(context, 1.0, -1.0);
-    
-    CGContextDrawImage(context, CGRectMake(0, 0, cols, rows), image.CGImage);
+    CGContextDrawImage(context, CGRectMake(0, 0, cols, rows), imageRef);
+
     CGContextRelease(context);
-    
+    CGColorSpaceRelease(colorSpace);
+
     return cvMat;
 }
 

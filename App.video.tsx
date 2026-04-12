@@ -140,20 +140,27 @@ function App(): React.JSX.Element {
               setProgressCurrent(0);
               setProgressTotal(frameCount);
               try {
-                const shots = frames.map((f: any) => ({
-                  path: f.path,
-                  yaw: f.yaw,
-                  pitch: f.pitch,
-                  hFov: f.hFov || 65,
-                  vFov: f.vFov || 50,
-                  rotationMatrix: f.rotationMatrix || null,
-                  fx: f.fx,
-                  fy: f.fy,
-                  cx: f.cx,
-                  cy: f.cy,
-                  imageWidth: f.imageWidth,
-                  imageHeight: f.imageHeight,
-                }));
+                const shots = frames.map((f: any, i: number) => {
+                  console.log(`[FRAME] idx=${i} row=${f.gridRow ?? '?'} col=${f.gridCol ?? '?'} target=(${(f.targetYaw ?? 0).toFixed(1)}, ${(f.targetPitch ?? 0).toFixed(1)}) measured=(${f.yaw.toFixed(1)}, ${f.pitch.toFixed(1)})`);
+                  return {
+                    path: f.path,
+                    yaw: f.yaw,
+                    pitch: f.pitch,
+                    hFov: f.hFov || 65,
+                    vFov: f.vFov || 50,
+                    rotationMatrix: f.rotationMatrix || null,
+                    fx: f.fx,
+                    fy: f.fy,
+                    cx: f.cx,
+                    cy: f.cy,
+                    imageWidth: f.imageWidth,
+                    imageHeight: f.imageHeight,
+                    gridRow: f.gridRow ?? -1,
+                    gridCol: f.gridCol ?? -1,
+                    targetYaw: f.targetYaw ?? 0,
+                    targetPitch: f.targetPitch ?? 0,
+                  };
+                });
                 console.log(`[App] Composing ${shots.length} frames...`);
                 const stitchedPath = await composeEquirect(shots);
                 console.log(`[App] Composed: ${stitchedPath}`);

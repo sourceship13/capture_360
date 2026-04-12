@@ -65,7 +65,7 @@ const VIEWER_HTML = `<!DOCTYPE html>
     '  r=vec3(cy*r.x+sy*r.z,r.y,-sy*r.x+cy*r.z);',
     '  float lon=atan(r.x,-r.z);',
     '  float lat=asin(clamp(r.y,-1.,1.));',
-    '  vec2 uv=vec2(lon/(2.*PI)+.5,-lat/PI+.5);',
+    '  vec2 uv=vec2(-lon/(2.*PI)+.5,-lat/PI+.5);',
     '  gl_FragColor=texture2D(t,uv);',
     '}'
   ].join('\\n');

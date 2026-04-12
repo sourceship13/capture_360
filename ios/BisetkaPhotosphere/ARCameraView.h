@@ -16,5 +16,6 @@
 @property (nonatomic, copy) RCTDirectEventBlock onRecordingComplete;
 
 - (void)captureFrame;
+- (void)captureFrameWithGridRow:(int)gridRow gridCol:(int)gridCol targetYaw:(double)targetYaw targetPitch:(double)targetPitch;
 
 @end

@@ -168,6 +168,22 @@ RCT_EXPORT_METHOD(composeEquirect:(NSArray *)shots
             }
         }
 
+        // ── 1d. Log grid metadata for debugging ──────────────────────
+        for (NSUInteger idx = 0; idx < totalShots; idx++) {
+            NSDictionary *shot = shots[idx];
+            NSNumber *gr = shot[@"gridRow"];
+            NSNumber *gc = shot[@"gridCol"];
+            NSNumber *ty = shot[@"targetYaw"];
+            NSNumber *tp = shot[@"targetPitch"];
+            double measuredYaw = [shot[@"yaw"] doubleValue];
+            double measuredPitch = [shot[@"pitch"] doubleValue];
+            NSLog(@"[FRAME] idx=%lu row=%@ col=%@ target=(%.1f, %.1f) measured=(%.1f, %.1f)",
+                  (unsigned long)idx,
+                  gr ?: @"?", gc ?: @"?",
+                  ty ? [ty doubleValue] : 0.0, tp ? [tp doubleValue] : 0.0,
+                  measuredYaw, measuredPitch);
+        }
+
         // ── 2.  Equirectangular compositing with progress ────────────────
         double hFov = [shots[0][@"hFov"] doubleValue];
         if (hFov <= 0) hFov = 43.0;
