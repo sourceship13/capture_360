@@ -166,6 +166,7 @@
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				DEBB2BD92F7B436F0062B357 /* Embed Frameworks */,
+				DE0FF01C2F8C87C700C46AF3 /* Open CV Run Script */,
 				C5460F8E5A5692AD3F33F1D8 /* [CP] Embed Pods Frameworks */,
 				B46F0DB48275B37B51BCCC85 /* [CP] Copy Pods Resources */,
 			);
@@ -303,6 +304,24 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-BisetkaPhotosphere/Pods-BisetkaPhotosphere-frameworks.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
+		DE0FF01C2F8C87C700C46AF3 /* Open CV Run Script */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Open CV Run Script";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "OPENCV_PLIST=\"${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/opencv2.framework/Info.plist\"\nif [ -f \"$OPENCV_PLIST\" ]; then\n    /usr/libexec/PlistBuddy -c \"Set :MinimumOSVersion 15.0\" \"$OPENCV_PLIST\" 2>/dev/null || \\\n    /usr/libexec/PlistBuddy -c \"Add :MinimumOSVersion string 15.0\" \"$OPENCV_PLIST\"\nfi\n";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -339,6 +358,7 @@
 					"$(PROJECT_DIR)",
 				);
 				INFOPLIST_FILE = BisetkaPhotosphere/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Photosphere;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -350,13 +370,14 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "org.sera.dev.Bisetka.--PRODUCT-NAME-rfc1034identifier-";
+				PRODUCT_BUNDLE_IDENTIFIER = "org.sera.dev.Bisetka.$(PRODUCT_NAME:rfc1034identifier)";
 				PRODUCT_NAME = BisetkaPhotosphere;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = "BisetkaPhotosphere/BisetkaPhotosphere-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Debug;
@@ -374,6 +395,7 @@
 					"$(PROJECT_DIR)",
 				);
 				INFOPLIST_FILE = BisetkaPhotosphere/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Photosphere;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -385,12 +407,13 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "org.sera.dev.Bisetka.--PRODUCT-NAME-rfc1034identifier-";
+				PRODUCT_BUNDLE_IDENTIFIER = "org.sera.dev.Bisetka.$(PRODUCT_NAME:rfc1034identifier)";
 				PRODUCT_NAME = BisetkaPhotosphere;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = "BisetkaPhotosphere/BisetkaPhotosphere-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Release;
