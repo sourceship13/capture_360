@@ -410,7 +410,7 @@ using namespace cv;
             cv::resize(src, scaled, cv::Size(), s, s, cv::INTER_AREA);
             src = scaled;
         }
-        cv::flip(src, src, -1);  // rotate 180° (flip both axes)
+        // No flip — use clean pinhole projection with real cx/cy
         double Rx = fd.R[0], Ry = fd.R[1], Rz = fd.R[2];
         double Ux = fd.R[3], Uy = fd.R[4], Uz = fd.R[5];
         double Fx = fd.R[6], Fy = fd.R[7], Fz = fd.R[8];
@@ -424,12 +424,12 @@ using namespace cv;
                 double dx = cosLat*sin(lon), dy = sin(lat), dz = cosLat*cos(lon);
 
                 double xc = -(Rx*dx + Ry*dy + Rz*dz);
-                double yc = Ux*dx + Uy*dy + Uz*dz;
-                double zc = Fx*dx + Fy*dy + Fz*dz;
+                double yc =  (Ux*dx + Uy*dy + Uz*dz);
+                double zc =  (Fx*dx + Fy*dy + Fz*dz);
                 if (zc <= 0) continue;
 
                 double u = fd.fx*(xc/zc) + fd.cx;
-                double v = -fd.fy*(yc/zc) + fd.cy;
+                double v = fd.cy - fd.fy*(yc/zc);
                 if (u < 0 || u >= fd.imgW-1 || v < 0 || v >= fd.imgH-1) continue;
 
                 int u0=(int)u, v0=(int)v;
@@ -511,9 +511,9 @@ using namespace cv;
             if (bestK >= 0) winMasks[bestK].at<float>(r, c) = 1.0f;
         }
 
-    // Narrow feather
+    // Wide feather to cover parallax from arm-length rotation
     for (NSUInteger ki = 0; ki < numFrames; ki++)
-        GaussianBlur(winMasks[ki], winMasks[ki], cv::Size(21, 21), 0);
+        GaussianBlur(winMasks[ki], winMasks[ki], cv::Size(121, 121), 0);
 
     // Normalize
     Mat maskSum = Mat::zeros(height_, width_, CV_32FC1);
