@@ -166,9 +166,10 @@
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				DEBB2BD92F7B436F0062B357 /* Embed Frameworks */,
-				DE0FF01C2F8C87C700C46AF3 /* Open CV Run Script */,
 				C5460F8E5A5692AD3F33F1D8 /* [CP] Embed Pods Frameworks */,
 				B46F0DB48275B37B51BCCC85 /* [CP] Copy Pods Resources */,
+				DE0FF01C2F8C87C700C46AF3 /* Open CV Run Script */,
+				DE0FF01D2F8CA55A00C46AF3 /* OpenCV Workaround */,
 			);
 			buildRules = (
 			);
@@ -320,7 +321,25 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "OPENCV_PLIST=\"${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/opencv2.framework/Info.plist\"\nif [ -f \"$OPENCV_PLIST\" ]; then\n    /usr/libexec/PlistBuddy -c \"Set :MinimumOSVersion 15.0\" \"$OPENCV_PLIST\" 2>/dev/null || \\\n    /usr/libexec/PlistBuddy -c \"Add :MinimumOSVersion string 15.0\" \"$OPENCV_PLIST\"\nfi\n";
+			shellScript = "OPENCV_PLIST=\"${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/opencv2.framework/Info.plist\"\nOPENCV_RES_PLIST=\"${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/opencv2.framework/Resources/Info.plist\"\n\nfor P in \"$OPENCV_PLIST\" \"$OPENCV_RES_PLIST\"; do\n  if [ -f \"$P\" ]; then\n    /usr/libexec/PlistBuddy -c \"Set :MinimumOSVersion 15.0\" \"$P\" 2>/dev/null || \\\n    /usr/libexec/PlistBuddy -c \"Add :MinimumOSVersion string 15.0\" \"$P\"\n  fi\ndone\n";
+		};
+		DE0FF01D2F8CA55A00C46AF3 /* OpenCV Workaround */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "OpenCV Workaround";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "#!/bin/bash\nset -e\n\nOPENCV_FRAMEWORK=\"${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/opencv2.framework\"\nif [ ! -d \"$OPENCV_FRAMEWORK\" ]; then\n  OPENCV_FRAMEWORK=\"${CODESIGNING_FOLDER_PATH}/Frameworks/opencv2.framework\"\nfi\nif [ ! -d \"$OPENCV_FRAMEWORK\" ]; then\n  echo \"opencv2.framework not found, skipping\"\n  exit 0\nfi\n\necho \"Found opencv2 at: $OPENCV_FRAMEWORK\"\n\n# Flatten Versions/ structure\nif [ -d \"${OPENCV_FRAMEWORK}/Versions\" ]; then\n  echo \"Flattening Versions/ structure...\"\n  \n  VERSIONS_A=\"${OPENCV_FRAMEWORK}/Versions/A\"\n  REAL_BINARY=\"${VERSIONS_A}/opencv2\"\n  DEST_BINARY=\"${OPENCV_FRAMEWORK}/opencv2_real\"\n  \n  if [ ! -f \"$REAL_BINARY\" ]; then\n    echo \"ERROR: No binary found in Versions/A!\"\n    ls -la \"${VERSIONS_A}/\"\n    exit 1\n  fi\n  \n  # Copy the real binary to a temp name (avoids identical file error)\n  cp -f \"$REAL_BINARY\" \"$DEST_BINARY\"\n  chmod +x \"$DEST_BINARY\"\n  \n  # Remove the symlink at root\n  rm -f \"${OPENCV_FRAMEWORK}/opencv2\"\n  \n  # Remove Versions directory\n  rm -rf \"${OPENCV_FRAMEWORK}/Versions\"\n  \n  # Remove any remaining symlinks\n  find \"${OPENCV_FRAMEWORK}\" -maxdepth 1 -type l -delete\n  \n  # Move real binary into place\n  mv \"$DEST_BINARY\" \"${OPENCV_FRAMEWORK}/opencv2\"\nfi\n\n# Clean unsealed contents\nrm -rf \"${OPENCV_FRAMEWORK}/Headers\"\nrm -rf \"${OPENCV_FRAMEWORK}/PrivateHeaders\"\nrm -rf \"${OPENCV_FRAMEWORK}/Modules\"\nrm -f \"${OPENCV_FRAMEWORK}/opencv2.podspec\"\nrm -f \"${OPENCV_FRAMEWORK}/LICENSE\"\nrm -f \"${OPENCV_FRAMEWORK}/README.md\"\nfind \"${OPENCV_FRAMEWORK}\" -maxdepth 1 -name \"*.h\" -delete\n\n# Fix minimum OS version in opencv2 Info.plist\nOPENCV_PLIST=\"${OPENCV_FRAMEWORK}/Info.plist\"\nif [ -f \"$OPENCV_PLIST\" ]; then\n  CURRENT_MIN=$(/usr/libexec/PlistBuddy -c \"Print :MinimumOSVersion\" \"$OPENCV_PLIST\" 2>/dev/null || echo \"none\")\n  echo \"opencv2 MinimumOSVersion: $CURRENT_MIN\"\n  /usr/libexec/PlistBuddy -c \"Set :MinimumOSVersion 15.1\" \"$OPENCV_PLIST\" 2>/dev/null || \\\n  /usr/libexec/PlistBuddy -c \"Add :MinimumOSVersion string 15.1\" \"$OPENCV_PLIST\"\n  echo \"Set MinimumOSVersion to 15.1\"\nfi\n\necho \"Contents after flattening:\"\nls -la \"$OPENCV_FRAMEWORK\"\n\n# Verify binary exists\nif [ ! -f \"${OPENCV_FRAMEWORK}/opencv2\" ]; then\n  echo \"ERROR: opencv2 binary missing!\"\n  exit 1\nfi\n\n# Strip simulator slices\nif lipo -info \"${OPENCV_FRAMEWORK}/opencv2\" 2>/dev/null | grep -q \"x86_64\"; then\n  echo \"Stripping x86_64...\"\n  lipo -remove x86_64 \"${OPENCV_FRAMEWORK}/opencv2\" -output \"${OPENCV_FRAMEWORK}/opencv2\" || true\nfi\n\n# Re-sign\ncodesign --force --sign \"F7542C038CA67BFC425366A2C0EE221AA216F621\" \\\n  --timestamp=none \\\n  \"${OPENCV_FRAMEWORK}\"\n\necho \"opencv2.framework done\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -350,7 +369,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = CM52HNMXXW;
 				ENABLE_BITCODE = NO;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -364,13 +383,13 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 6.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "org.sera.dev.Bisetka.$(PRODUCT_NAME:rfc1034identifier)";
+				PRODUCT_BUNDLE_IDENTIFIER = "org.sera.dev.$(PRODUCT_NAME:rfc1034identifier)";
 				PRODUCT_NAME = BisetkaPhotosphere;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -388,8 +407,12 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = CM52HNMXXW;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 9;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = CM52HNMXXW;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)",
@@ -401,14 +424,16 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 6.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "org.sera.dev.Bisetka.$(PRODUCT_NAME:rfc1034identifier)";
+				PRODUCT_BUNDLE_IDENTIFIER = org.sera.dev.BisetkaPhotosphere;
 				PRODUCT_NAME = BisetkaPhotosphere;
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "Bisetka Prov Profile Dist";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = "BisetkaPhotosphere/BisetkaPhotosphere-Bridging-Header.h";
