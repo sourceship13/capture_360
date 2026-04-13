@@ -485,10 +485,9 @@ using namespace cv;
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // STEP 4: Direct edge-distance weighted blend
-    // Every overlapping frame contributes proportionally to how far
-    // the pixel is from its source image edge. No winner-takes-all,
-    // no content loss at frame boundaries.
+    // STEP 4: Power-weighted blend — sharp center, smooth edges
+    // Squaring edge-distance weights makes center pixels dominate
+    // strongly, reducing ghosting while keeping seamless transitions.
     // ══════════════════════════════════════════════════════════════════
     Mat result(height_, width_, CV_8UC4, cv::Scalar(0,0,0,0));
     for (int r = 0; r < height_; r++) {
@@ -496,8 +495,12 @@ using namespace cv;
             float totalW = 0;
             float bR = 0, bG = 0, bB = 0;
             for (NSUInteger ki = 0; ki < numFrames; ki++) {
-                float w = warpedWeights[ki].at<float>(r, c);
-                if (w > 0) {
+                float ed = warpedWeights[ki].at<float>(r, c);
+                if (ed > 0) {
+                    // Cube the weight: center pixels get ~1000x more
+                    // influence than edge pixels, killing ghosting
+                    // while keeping smooth transitions
+                    float w = ed * ed * ed;
                     Vec3b px = warpedFrames[ki].at<Vec3b>(r, c);
                     bR += w * px[0];
                     bG += w * px[1];
