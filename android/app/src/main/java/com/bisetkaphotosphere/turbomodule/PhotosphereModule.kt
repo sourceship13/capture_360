@@ -2,7 +2,9 @@ package com.bisetkaphotosphere.turbomodule
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Matrix
+import android.graphics.Paint
 import android.util.Log
 import androidx.exifinterface.media.ExifInterface
 import com.facebook.react.bridge.Arguments
@@ -19,6 +21,7 @@ import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.*
@@ -74,6 +77,54 @@ class PhotosphereModule(private val reactContext: ReactApplicationContext) :
     }
 
     // ─── Image loading with EXIF orientation normalisation ───────────────
+
+    /**
+     * Load a bitmap from disk and apply EXIF orientation.
+     */
+    private fun loadAndFixOrientation(filePath: String): Bitmap? {
+        val path = if (filePath.startsWith("file://")) {
+            filePath.removePrefix("file://")
+        } else {
+            filePath
+        }
+        val file = File(path)
+        if (!file.exists()) return null
+
+        val bitmap = BitmapFactory.decodeFile(path) ?: return null
+
+        // Read EXIF orientation and apply rotation/flip
+        val exif = ExifInterface(path)
+        val orientation = exif.getAttributeInt(
+            ExifInterface.TAG_ORIENTATION,
+            ExifInterface.ORIENTATION_NORMAL
+        )
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.preScale(-1f, 1f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.preScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                matrix.postRotate(90f); matrix.preScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                matrix.postRotate(270f); matrix.preScale(-1f, 1f)
+            }
+        }
+
+        return if (orientation != ExifInterface.ORIENTATION_NORMAL &&
+            orientation != ExifInterface.ORIENTATION_UNDEFINED
+        ) {
+            val rotated = Bitmap.createBitmap(
+                bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
+            )
+            if (rotated !== bitmap) bitmap.recycle()
+            rotated
+        } else {
+            bitmap
+        }
+    }
 
     /**
      * Load a bitmap from disk, applying EXIF orientation so pixels are
@@ -582,20 +633,182 @@ class PhotosphereModule(private val reactContext: ReactApplicationContext) :
     }
 
     // =====================================================================
-    // stitchImages — Legacy OpenCV Stitcher pipeline
+    // stitchHorizontal — Simple 3-image horizontal compositor (JS-facing alias)
     // =====================================================================
 
     /**
-     * Legacy stitchImages — OpenCV Stitcher pipeline.
-     * The Android OpenCV AAR does not include Java bindings for
-     * cv::Stitcher, so this method is a stub. Use composeEquirect instead.
+     * Stitches 3 images horizontally as a convenience wrapper around stitchImages.
+     */
+    @ReactMethod
+    fun stitchHorizontal(paths: ReadableArray, promise: Promise) {
+        stitchImages(paths, promise)
+    }
+
+    // =====================================================================
+    // stitchImages — Legacy left-to-right linear compositor (kept for reference)
+    // =====================================================================
+
+    /**
+     * Stitch images side-by-side using Android Canvas API.
+     * Matches iOS implementation: loads frames, normalizes EXIF orientation,
+     * scales to same height as first frame, positions left-to-right with
+     * feathered seams, and outputs JPEG to cache directory.
      */
     @ReactMethod
     fun stitchImages(imagePaths: ReadableArray, promise: Promise) {
-        promise.reject(
-            "STITCH_ERROR",
-            "OpenCV Stitcher is not available on Android. Use composeEquirect instead."
-        )
+        Thread {
+            try {
+                // ── 1. Load and normalise every frame ───────────────────────
+                val frames = ArrayList<Bitmap>()
+                for (i in 0 until imagePaths.size()) {
+                    val path = imagePaths.getString(i)
+                    val posix = if (path != null && path.startsWith("file://")) {
+                        path.removePrefix("file://")
+                    } else {
+                        path ?: ""
+                    }
+
+                    val raw = BitmapFactory.decodeFile(posix)
+                    if (raw == null) {
+                        Log.w(TAG, "[Pano] WARN: could not load $posix")
+                        continue
+                    }
+
+                    // Apply EXIF orientation fix (matches iOS NormaliseOrientation)
+                    val norm = loadAndFixOrientation(posix)
+                    frames.add(norm ?: raw)
+                }
+
+                if (frames.size < 2) {
+                    promise.reject(
+                        "STITCH_ERROR",
+                        "Need at least 2 images; loaded ${frames.size}/${imagePaths.size()}"
+                    )
+                    return@Thread
+                }
+
+                // ── 2. Normalise all frames to the same height as frame 0 ────
+                val targetH = (frames[0].height).toDouble()
+                val scaled = ArrayList<Bitmap>(frames.size)
+                for (f in frames) {
+                    if (abs(f.height - targetH) < 1.0) {
+                        scaled.add(f)
+                    } else {
+                        val ratio = targetH / f.height
+                        val szW = (f.width * ratio).toInt()
+                        val szH = targetH.toInt()
+                        scaled.add(
+                            Bitmap.createScaledBitmap(f, szW, szH, true)
+                        )
+                    }
+                }
+
+                // ── 3. Pre-compute LEFT-EDGE x-position of each frame ──────
+                val kOverlap = 0.0f
+                val kFeatherPx = 40.0f // pixels of soft blend at each seam
+                val kMaxW = 4096.0f
+
+                val xs = ArrayList<Float>(scaled.size)
+                var cursor = 0.0f
+                for (i in scaled.indices) {
+                    xs.add(cursor)
+                    if (i + 1 < scaled.size) {
+                        cursor += scaled[i].width * (1.0f - kOverlap)
+                    }
+                }
+
+                // Canvas width = x-position of last frame + its own width
+                val rawW = xs.last() + scaled.last().width.toDouble()
+                val outScale = min(1.0, kMaxW / rawW)
+                val canvasW = max(1, (rawW * outScale).toInt())
+                val canvasH = max(1, (targetH * outScale).toInt())
+
+                Log.i(TAG, "[Pano] canvas=${canvasW}x${canvasH} scale=${outScale} n=${scaled.size}")
+
+                // ── 4. Draw all frames left-to-right with cross-fade seams ──
+                val bitmap = Bitmap.createBitmap(canvasW, canvasH, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(bitmap)
+
+                for (i in scaled.indices) {
+                    val img = scaled[i]
+                    val x = xs[i] * outScale
+                    val imgW = img.width * outScale
+                    val imgH = img.height * outScale // same as canvasH
+
+                    Log.i(TAG, "[Pano] frame$i → x=${x.toInt()} w=${imgW.toInt()} h=${imgH.toInt()}")
+
+                    // (a) Draw this frame fully at its canvas position
+                    canvas.drawBitmap(
+                        img,
+                        x.toFloat(),
+                        0f,
+                        null
+                    )
+
+                    // (b) Feather the seam: at the LEFT edge of this frame, overdraw a
+                    //     thin strip with the previous frame at linearly-decreasing alpha
+                    if (i > 0) {
+                        val prev = scaled[i - 1]
+                        val px = xs[i - 1] * outScale
+                        val pw = prev.width * outScale
+
+                        val fadeW = min(kFeatherPx * outScale, imgW * 0.05).toFloat()
+                        val kSlices = 16
+                        val sw = fadeW / kSlices
+
+                        for (s in 0 until kSlices) {
+                            // alpha: 1.0 at seam → 0 at feather edge
+                            val alpha = 1.0f - s.toFloat() / (kSlices - 1).toFloat()
+                            val sliceX = x + s * sw
+
+                            canvas.save()
+                            canvas.clipRect(
+                                sliceX.toInt(),
+                                0,
+                                (sliceX + sw).toInt(),
+                                imgH.toInt()
+                            )
+                            // Use Paint with alpha instead of deprecated Canvas.setAlpha
+                            val paint = Paint().apply { this.alpha = (alpha * 255).toInt() }
+                            canvas.drawBitmap(prev, px.toFloat(), 0f, paint)
+                            canvas.restore()
+                        }
+                    }
+                }
+
+                // Force orientation up (no EXIF rotation tags)
+                val panorama = Bitmap.createBitmap(
+                    bitmap,
+                    0, 0,
+                    bitmap.width, bitmap.height,
+                    null, true
+                )
+
+                // ── 5. Encode as JPEG and write to tmp ───────────────────────
+                val jpegOutputStream = ByteArrayOutputStream()
+                panorama.compress(Bitmap.CompressFormat.JPEG, 88, jpegOutputStream)
+                val jpegBytes = jpegOutputStream.toByteArray()
+
+                // Embed dimensions in filename for easy diagnostics (matches iOS)
+                val name = String.format(
+                    "pano_%dx%d_%d.jpg",
+                    canvasW,
+                    canvasH,
+                    System.currentTimeMillis()
+                )
+                val outputFile = File(reactContext.cacheDir, name)
+
+                FileOutputStream(outputFile).use { out ->
+                    out.write(jpegBytes)
+                }
+
+                Log.i(TAG, "[Pano] saved → ${outputFile.absolutePath}")
+                promise.resolve(outputFile.absolutePath)
+            } catch (e: Exception) {
+                Log.e(TAG, "stitchImages exception", e)
+                promise.reject("STITCH_ERROR", "Exception: ${e.message}", e)
+            }
+        }.start()
     }
 
     // =====================================================================
@@ -603,12 +816,12 @@ class PhotosphereModule(private val reactContext: ReactApplicationContext) :
     // =====================================================================
 
     @ReactMethod
-    fun readFileBase64(filePath: String, promise: Promise) {
+    fun readFileBase64(filePath: String?, promise: Promise) {
         try {
-            val path = if (filePath.startsWith("file://")) {
+            val path = if (filePath != null && filePath.startsWith("file://")) {
                 filePath.removePrefix("file://")
             } else {
-                filePath
+                filePath ?: ""
             }
             val bytes = File(path).readBytes()
             val base64 = android.util.Base64.encodeToString(
