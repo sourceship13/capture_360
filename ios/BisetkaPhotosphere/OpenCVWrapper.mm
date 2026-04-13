@@ -423,13 +423,13 @@ using namespace cv;
                 double cosLat = cos(lat);
                 double dx = cosLat*sin(lon), dy = sin(lat), dz = cosLat*cos(lon);
 
-                double xc = -(Rx*dx + Ry*dy + Rz*dz);
+                double xc =  (Rx*dx + Ry*dy + Rz*dz);
                 double yc =  (Ux*dx + Uy*dy + Uz*dz);
                 double zc =  (Fx*dx + Fy*dy + Fz*dz);
                 if (zc <= 0) continue;
 
                 double u = fd.fx*(xc/zc) + fd.cx;
-                double v = fd.cy - fd.fy*(yc/zc);
+                double v = fd.fy*(yc/zc) + fd.cy;
                 if (u < 0 || u >= fd.imgW-1 || v < 0 || v >= fd.imgH-1) continue;
 
                 int u0=(int)u, v0=(int)v;
@@ -485,63 +485,35 @@ using namespace cv;
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // STEP 4: Feathered winner-takes-all
+    // STEP 4: Direct edge-distance weighted blend
+    // Every overlapping frame contributes proportionally to how far
+    // the pixel is from its source image edge. No winner-takes-all,
+    // no content loss at frame boundaries.
     // ══════════════════════════════════════════════════════════════════
-    std::vector<float> maxEdgeDist(numFrames);
-    for (NSUInteger ki = 0; ki < numFrames; ki++) {
-        maxEdgeDist[ki] = (float)(MIN(frames[ki].imgW, frames[ki].imgH) * 0.5);
-        if (maxEdgeDist[ki] < 1.0f) maxEdgeDist[ki] = 1.0f;
-    }
-
-    // Pick winner per pixel
-    std::vector<Mat> winMasks(numFrames);
-    for (NSUInteger ki = 0; ki < numFrames; ki++)
-        winMasks[ki] = Mat::zeros(height_, width_, CV_32FC1);
-
-    for (int r = 0; r < height_; r++)
-        for (int c = 0; c < width_; c++) {
-            float bestW = 0; int bestK = -1;
-            for (NSUInteger ki = 0; ki < numFrames; ki++) {
-                float ed = warpedWeights[ki].at<float>(r, c);
-                if (ed > 0) {
-                    float norm = ed / maxEdgeDist[ki];
-                    if (norm > bestW) { bestW = norm; bestK = (int)ki; }
-                }
-            }
-            if (bestK >= 0) winMasks[bestK].at<float>(r, c) = 1.0f;
-        }
-
-    // Wide feather to cover parallax from arm-length rotation
-    for (NSUInteger ki = 0; ki < numFrames; ki++)
-        GaussianBlur(winMasks[ki], winMasks[ki], cv::Size(121, 121), 0);
-
-    // Normalize
-    Mat maskSum = Mat::zeros(height_, width_, CV_32FC1);
-    for (NSUInteger ki = 0; ki < numFrames; ki++) maskSum += winMasks[ki];
-    for (NSUInteger ki = 0; ki < numFrames; ki++)
-        for (int r = 0; r < height_; r++)
-            for (int c = 0; c < width_; c++) {
-                float s = maskSum.at<float>(r, c);
-                if (s > 0) winMasks[ki].at<float>(r, c) /= s;
-            }
-
-    // Blend
     Mat result(height_, width_, CV_8UC4, cv::Scalar(0,0,0,0));
-    for (int r = 0; r < height_; r++)
+    for (int r = 0; r < height_; r++) {
         for (int c = 0; c < width_; c++) {
-            if (maskSum.at<float>(r, c) <= 0) continue;
-            float bR=0, bG=0, bB=0;
+            float totalW = 0;
+            float bR = 0, bG = 0, bB = 0;
             for (NSUInteger ki = 0; ki < numFrames; ki++) {
-                float w = winMasks[ki].at<float>(r, c);
+                float w = warpedWeights[ki].at<float>(r, c);
                 if (w > 0) {
                     Vec3b px = warpedFrames[ki].at<Vec3b>(r, c);
-                    bR += w*px[0]; bG += w*px[1]; bB += w*px[2];
+                    bR += w * px[0];
+                    bG += w * px[1];
+                    bB += w * px[2];
+                    totalW += w;
                 }
             }
-            result.at<Vec4b>(r, c) = Vec4b(
-                (uchar)fmin(bR,255), (uchar)fmin(bG,255),
-                (uchar)fmin(bB,255), 255);
+            if (totalW > 0) {
+                result.at<Vec4b>(r, c) = Vec4b(
+                    (uchar)fmin(bR / totalW, 255),
+                    (uchar)fmin(bG / totalW, 255),
+                    (uchar)fmin(bB / totalW, 255),
+                    255);
+            }
         }
+    }
 
     NSLog(@"[Equirect Fallback] Done: %dx%d (%lu frames)", width_, height_, (unsigned long)numFrames);
     return [self UIImageFromCVMat:result];
