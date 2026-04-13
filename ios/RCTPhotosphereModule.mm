@@ -124,7 +124,7 @@ RCT_EXPORT_METHOD(composeEquirect:(NSArray *)shots
         }
 
         // ── 1b. Subsample if too many frames ────────────────────────────
-        const NSUInteger kMaxFrames = 40;
+        const NSUInteger kMaxFrames = 80;
         if (images.count > kMaxFrames) {
             NSLog(@"[Stitch] Subsampling %lu → %lu frames",
                   (unsigned long)images.count, (unsigned long)kMaxFrames);
@@ -194,6 +194,16 @@ RCT_EXPORT_METHOD(composeEquirect:(NSArray *)shots
 
         NSLog(@"[Stitch] Compositing %lu frames (hFov=%.0f°) canvas=%dx%d…",
               (unsigned long)images.count, hFov, canvasWidth, canvasHeight);
+
+        for (NSUInteger i = 0; i < images.count; i++) {
+            NSLog(@"[Stitch] → frame %lu: yaw=%.1f° pitch=%.1f° size=%dx%d rot_count=%lu",
+                  (unsigned long)i,
+                  [yaws[i] doubleValue],
+                  [pitches[i] doubleValue],
+                  (int)images[i].size.width,
+                  (int)images[i].size.height,
+                  (unsigned long)[rotations[i] count]);
+        }
 
         [self sendEventWithName:@"stitchProgress" body:@{
             @"phase":   @"compositing",

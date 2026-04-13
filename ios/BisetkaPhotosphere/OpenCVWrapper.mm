@@ -290,37 +290,15 @@ using namespace cv;
     // Enforce 2:1 equirectangular canvas
     height = width / 2;
 
-    // ── Angular dedup ────────────────────────────────────────────────
-    const double MIN_ANGLE_DEG = 8.0;
-    const double MIN_ANGLE_COS = cos(MIN_ANGLE_DEG * M_PI / 180.0);
+    // ── Angular dedup (DISABLED for testing) ─────────────────────────
     NSUInteger N = images.count;
-    std::vector<double> fwdX(N), fwdY(N), fwdZ(N);
-    for (NSUInteger i = 0; i < N; i++) {
-        NSArray<NSNumber *> *rot = (i < rotations.count) ? rotations[i] : nil;
-        if (rot && rot.count == 9) {
-            fwdX[i] = [rot[6] doubleValue];
-            fwdY[i] = [rot[7] doubleValue];
-            fwdZ[i] = [rot[8] doubleValue];
-        } else {
-            double yR = [yaws[i] doubleValue] * M_PI / 180.0;
-            double pR = [pitches[i] doubleValue] * M_PI / 180.0;
-            fwdX[i] = sin(yR) * cos(pR);
-            fwdY[i] = -sin(pR);
-            fwdZ[i] = cos(yR) * cos(pR);
-        }
-    }
     std::vector<NSUInteger> keepIdx;
     keepIdx.reserve(N);
     for (NSUInteger i = 0; i < N; i++) {
-        bool tooClose = false;
-        for (NSUInteger ki : keepIdx) {
-            double dot = fwdX[i]*fwdX[ki] + fwdY[i]*fwdY[ki] + fwdZ[i]*fwdZ[ki];
-            if (dot > MIN_ANGLE_COS) { tooClose = true; break; }
-        }
-        if (!tooClose) keepIdx.push_back(i);
+        keepIdx.push_back(i);
     }
     NSUInteger numFrames = keepIdx.size();
-    NSLog(@"[Equirect Fallback] %lu frames after dedup", (unsigned long)numFrames);
+    NSLog(@"[Equirect Fallback] Using all %lu frames (dedup disabled)", (unsigned long)numFrames);
 
     // ══════════════════════════════════════════════════════════════════
     // STEP 0: Load all source images and extract rotation matrices
@@ -437,30 +415,8 @@ using namespace cv;
         double Ux = fd.R[3], Uy = fd.R[4], Uz = fd.R[5];
         double Fx = fd.R[6], Fy = fd.R[7], Fz = fd.R[8];
 
-        // Bounding box (use per-frame intrinsics for FOV)
-        double lonCenter = atan2(Fx, Fz);
-        double latCenter = asin(fmax(-1, fmin(1, Fy)));
-        double hfovDeg_frame = 2.0 * atan(fd.imgW / (2.0 * fd.fx)) * 180.0 / M_PI;
-        double vfovDeg_frame = 2.0 * atan(fd.imgH / (2.0 * fd.fy)) * 180.0 / M_PI;
-        // At high latitudes, longitude converges — same angular FOV spans more
-        // longitude degrees. Correct by 1/cos(worst-case latitude).
-        double worstLat = fabs(latCenter) + (vfovDeg_frame / 2.0 + 10.0) * M_PI / 180.0;
-        double cosWorstLat = fmax(cos(worstLat), 0.05);
-        double halfH = fmin(180.0, (hfovDeg_frame / 2.0 + 10.0) / cosWorstLat);
-        double halfV = vfovDeg_frame / 2.0 + 10.0;
-        int cxMin = (int)(((lonCenter - halfH*M_PI/180.0)/M_PI + 1.0)*0.5*width_) - 2;
-        int cxMax = (int)(((lonCenter + halfH*M_PI/180.0)/M_PI + 1.0)*0.5*width_) + 2;
-        int cyMin = (int)((0.5 - (latCenter + halfV*M_PI/180.0)/M_PI)*height_) - 2;
-        int cyMax = (int)((0.5 - (latCenter - halfV*M_PI/180.0)/M_PI)*height_) + 2;
-        bool wraps = (cxMin < 0 || cxMax >= width_);
-        if (!wraps) { cxMin = MAX(0, cxMin); cxMax = MIN(width_-1, cxMax); }
-        cyMin = MAX(0, cyMin); cyMax = MIN(height_-1, cyMax);
-
-        for (int canvasY = cyMin; canvasY <= cyMax; canvasY++) {
-            for (int rawX = cxMin; rawX <= cxMax; rawX++) {
-                int canvasX = rawX;
-                if (canvasX < 0) canvasX += width_;
-                if (canvasX >= width_) canvasX -= width_;
+        for (int canvasY = 0; canvasY < height_; canvasY++) {
+            for (int canvasX = 0; canvasX < width_; canvasX++) {
 
                 double lon = ((double)canvasX / width_) * 2.0 * M_PI - M_PI;
                 double lat = M_PI / 2.0 - ((double)canvasY / height_) * M_PI;
