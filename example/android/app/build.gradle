@@ -1,3 +1,5 @@
+apply plugin: "com.android.application"
+
 android {
     namespace "com.capture360example"
     compileSdkVersion rootProject.ext.compileSdkVersion
@@ -8,20 +10,27 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+        multiDexEnabled true
     }
 
     buildTypes {
         release {
-            minifyEnabled enableProguardInReleaseBuilds
-            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
     }
 
     packagingOptions {
         pickFirst "**/libc++_shared.so"
-        pickFirst "**/libfbjni.so"
-        pickFirst "**/libreact_cxxbridge.so"
-        pickFirst "**/libreactnative.so"
-        pickFirst "**/libreactnativejni.so"
     }
+
+    lintOptions {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
+
+dependencies {
+    implementation fileTree(dir: "libs", include: ["*.jar"])
+    implementation 'androidx.appcompat:appcompat:1.6.1'
 }

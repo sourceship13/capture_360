@@ -8,10 +8,4 @@ pluginManagement {
 
 rootProject.name = 'Capture360Example'
 
-// Only apply native modules if node_modules exists
-if (new File('../node_modules/@react-native-community/cli-platform-android/native_modules.gradle').exists()) {
-    apply from: file("../node_modules/@react-native-community/cli-platform-android/native_modules.gradle")
-    applyNativeModulesSettingsGradle(settings)
-}
-
 include ':app'
