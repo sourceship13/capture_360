@@ -1,0 +1,67 @@
+platform :ios, '15.0'
+use_frameworks! :linkage => :static
+
+target 'Capture360Example' do
+  pod 'React-core', :path => '../node_modules/react-native/'
+  pod 'React-apis', :path => '../node_modules/react-native/'
+  pod 'React-runtimescheduler', :path => '../node_modules/react-native/'
+  pod 'React-rendererdebug', :path => '../node_modules/react-native/'
+  pod 'React-utils', :path => '../node_modules/react-native/'
+  pod 'React-cxxreact', :path => '../node_modules/react-native/'
+  pod 'React-jsi', :path => '../node_modules/react-native/'
+  pod 'React-jsitracing', :path => '../node_modules/react-native/'
+  pod 'React-jsinspector', :path => '../node_modules/react-native/'
+  pod 'React-perflogger', :path => '../node_modules/react-native/'
+  pod 'React-devsettings', :path => '../node_modules/react-native/'
+  pod 'React-debug', :path => '../node_modules/react-native/'
+  
+  pod 'React-android', :path => '../node_modules/react-native/'
+  
+  pod 'RCT-folly', :path => '../node_modules/react-native/third-party-podspecs/RCT-Folly'
+  pod 'RCTRequired', :path => '../node_modules/react-native/Libraries/RCTRequired'
+  pod 'RCTTypeSafety', :path => '../node_modules/react-native/Libraries/TypeSafety'
+  pod 'ReactCommon/turbomodule/core', :path => '../node_modules/react-native/ReactCommon'
+  pod 'React-common', :path => '../node_modules/react-native/ReactCommon'
+  
+  pod 'Boost', :path => '../node_modules/react-native/third-party-podspecs/Boost'
+  pod 'DoubleConversion', :path => '../node_modules/react-native/third-party-podspecs/DoubleConversion'
+  pod 'glog', :path => '../node_modules/react-native/third-party-podspecs/glog'
+  
+  pod 'FBLazyVector', :path => "../node_modules/react-native/Libraries/FBLazyVector"
+  pod 'FBReactNativeSpec', :path => "../node_modules/react-native/React/FBReactNativeSpec"
+  
+  pod 'RCT-Folly', '2024.01.01.00'
+  pod 'RCTRequired', '0.83.1'
+  pod 'RCTTypeSafety', '0.83.1'
+  pod 'React', '0.83.1'
+  pod 'React-Core', '0.83.1'
+  pod 'React-CoreModules', '0.83.1'
+  pod 'React-RCTActionSheet', '0.83.1'
+  pod 'React-RCTAnimation', '0.83.1'
+  pod 'React-RCTBlob', '0.83.1'
+  pod 'React-RCTImage', '0.83.1'
+  pod 'React-RCTLinking', '0.83.1'
+  pod 'React-RCTNetwork', '0.83.1'
+  pod 'React-RCTSettings', '0.83.1'
+  pod 'React-RCTText', '0.83.1'
+  pod 'React-RCTVibration', '0.83.1'
+  
+  pod 'React-jsi', '0.83.1'
+  pod 'React-cxxreact', '0.83.1'
+  pod 'React-jsinspector', '0.83.1'
+  pod 'React-perflogger', '0.83.1'
+  pod 'React-debug', '0.83.1'
+  
+  pod 'ReactCommon/turbomodule/core', '0.83.1'
+  pod 'ReactCommon/callinvoker', '0.83.1'
+  
+  pod 'DoubleConversion', '1.1.6'
+  pod 'glog', '0.3.5'
+  pod 'Boost', '1.83.0'
+  
+  pod 'rn-fetch-blob', :path => '../node_modules/rn-fetch-blob'
+  
+  target 'Capture360ExampleTests' do
+    inherit! :search_paths
+  end
+end
