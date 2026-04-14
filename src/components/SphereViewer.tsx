@@ -5,7 +5,7 @@
  * Reads the panorama via the native readFileBase64 module, then injects
  * it into the WebView as a data URL.
  */
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useCallback, useRef, useState} from 'react';
 import {View, StyleSheet, ActivityIndicator, Text} from 'react-native';
 import {WebView} from 'react-native-webview';
 import type {WebViewMessageEvent} from 'react-native-webview';
@@ -216,13 +216,13 @@ type Props = {
   /** Absolute file path to an equirectangular JPEG panorama. */
   imagePath: string;
   /** Device attitude (yaw/pitch/roll) from motion sensors */
-  attitude?: Attitude;
+  _attitude?: Attitude;
   /** Initial camera position (yaw/pitch in degrees) — defaults to first shot's orientation */
   initialYaw?: number;
   initialPitch?: number;
 };
 
-export default function SphereViewer({imagePath, attitude, initialYaw = 0, initialPitch = 0}: Props) {
+export default function SphereViewer({imagePath, _attitude, initialYaw = 0, initialPitch = 0}: Props) {
   console.log('[SphereViewer] Mounting with initial:', {initialYaw, initialPitch});
   const webRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
@@ -257,7 +257,7 @@ export default function SphereViewer({imagePath, attitude, initialYaw = 0, initi
       setError(e.message ?? 'Failed to read image');
       setLoading(false);
     }
-  }, [imagePath]);
+  }, [imagePath, initialPitch, initialYaw]);
 
   const onMessage = useCallback((event: WebViewMessageEvent) => {
     try {

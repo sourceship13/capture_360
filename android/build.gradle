@@ -1,34 +1,24 @@
-// Top-level build file where you can add configuration options common to all sub-projects/modules.
-
 buildscript {
- ext {
- buildToolsVersion = "34.0.0"
- minSdkVersion = 21
- compileSdkVersion = 35
- targetSdkVersion = 34
- kotlinVersion = "2.1.20"
- enableNewArchitecture = false
- }
- repositories {
- google()
- mavenCentral()
- gradlePluginPortal()
- }
- dependencies {
- classpath("com.android.tools.build:gradle:8.6.0")
- classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
- }
+    ext {
+        kotlinVersion = "2.1.20"
+        minSdkVersion = 24
+        targetSdkVersion = 34
+        compileSdkVersion = 35
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle:8.6.0")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
+    }
 }
 
 allprojects {
- repositories {
- maven {
- url "$rootDir/../node_modules/react-native/android"
- }
- maven {
- url "$rootDir/../node_modules/@react-native/gradle-plugin"
- }
- google()
- mavenCentral()
- }
+    repositories {
+        google()
+        mavenCentral()
+        maven { url "$rootDir/../node_modules/react-native/android" }
+    }
 }

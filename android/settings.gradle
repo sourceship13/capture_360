@@ -1,2 +1,17 @@
-rootProject.name = 'BisetkaPhotosphere'
-include ':app'
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        google()
+        mavenCentral()
+    }
+}
+
+plugins {
+    id "com.android.library" version "8.6.0" apply false
+    id "org.jetbrains.kotlin.android" version "2.1.20" apply false
+}
+
+rootProject.name = "@sourceship/capture360"
+
+include ":app"
+project(":app").projectDir = new File(rootProject.projectDir, "app")

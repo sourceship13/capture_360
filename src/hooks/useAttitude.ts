@@ -53,7 +53,7 @@ export function useAttitude(active: boolean = true): Attitude {
       const rawYaw = data.yaw;
       latestRawYawRef.current = rawYaw;
 
-      let adjustedYaw = rawYaw - yawOffsetRef.current;
+      let adjustedYaw = yawOffsetRef.current !== null ? rawYaw - yawOffsetRef.current : rawYaw;
       if (adjustedYaw > 180) adjustedYaw -= 360;
       if (adjustedYaw < -180) adjustedYaw += 360;
 

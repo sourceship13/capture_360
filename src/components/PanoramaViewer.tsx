@@ -5,7 +5,7 @@
  * Supports touch pan (drag) and pinch-to-zoom.
  * Reads the image via readFileBase64 and renders in a WebView.
  */
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useCallback, useRef, useState} from 'react';
 import {View, StyleSheet, ActivityIndicator, Text} from 'react-native';
 import {WebView} from 'react-native-webview';
 import type {WebViewMessageEvent} from 'react-native-webview';
