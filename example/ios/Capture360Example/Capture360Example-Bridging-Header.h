@@ -4,6 +4,6 @@
 //
 
 #import <Foundation/Foundation.h>
-#import <react-native-bisetka-photosphere/OpenCVWrapper.h>
-#import <react-native-bisetka-photosphere/RCTVideoRecorderModule.h>
-#import <react-native-bisetka-photosphere/RCTNativeDeviceInfoModule.h>
+#import "OpenCVWrapper.h"
+#import "RCTVideoRecorderModule.h"
+#import "RCTNativeDeviceInfoModule.h"

@@ -1,6 +1,6 @@
 //
 //  ARCameraViewManager.m
-//  BisetkaPhotosphere
+//  Capture360
 //
 //  RCTViewManager that exposes ARCameraView to React Native.
 //

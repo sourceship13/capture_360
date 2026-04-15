@@ -1,6 +1,6 @@
 //
 //  OpenCVWrapper.mm
-//  BisetkaPhotosphere
+//  Capture360
 //
 //  Objective-C++ implementation using OpenCV
 //

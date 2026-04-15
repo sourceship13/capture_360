@@ -102,5 +102,19 @@ target 'Capture360Example' do
         puts "[modulemap fix] Fixed: #{short}"
       end
     end
+
+    # Call Python script to fix any remaining issues
+    system("python3", "fix_xcconfig.py", "Pods/Target Support Files/Pods-Capture360Example/Pods-Capture360Example.debug.xcconfig")
+    system("python3", "fix_xcconfig.py", "Pods/Target Support Files/Pods-Capture360Example/Pods-Capture360Example.release.xcconfig")
+
+    # Disable bridging header precompilation to avoid modulemap issues
+    debug_xcconfig = File.read("Pods/Target Support Files/Pods-Capture360Example/Pods-Capture360Example.debug.xcconfig")
+    release_xcconfig = File.read("Pods/Target Support Files/Pods-Capture360Example/Pods-Capture360Example.release.xcconfig")
+    unless debug_xcconfig.include?("SWIFT_PRECOMPILE_BRIDGING_HEADER")
+        File.write("Pods/Target Support Files/Pods-Capture360Example/Pods-Capture360Example.debug.xcconfig", debug_xcconfig + "\nSWIFT_PRECOMPILE_BRIDGING_HEADER = NO\n")
+    end
+    unless release_xcconfig.include?("SWIFT_PRECOMPILE_BRIDGING_HEADER")
+        File.write("Pods/Target Support Files/Pods-Capture360Example/Pods-Capture360Example.release.xcconfig", release_xcconfig + "\nSWIFT_PRECOMPILE_BRIDGING_HEADER = NO\n")
+    end
   end
 end

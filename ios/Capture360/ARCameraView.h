@@ -1,6 +1,6 @@
 //
 //  ARCameraView.h
-//  BisetkaPhotosphere
+//  Capture360
 //
 //  Native camera preview using ARKit for live feed + frame capture with pose data.
 //  Replaces react-native-vision-camera to avoid AVCaptureSession conflicts.

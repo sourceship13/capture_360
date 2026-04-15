@@ -1,6 +1,6 @@
 //
 //  RCTVideoRecorderModule.h
-//  BisetkaPhotosphere
+//  Capture360
 //
 //  Utility for extracting frames from video files.
 //  Camera preview & recording handled by react-native-vision-camera.

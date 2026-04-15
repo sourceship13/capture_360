@@ -1,6 +1,6 @@
 //
 //  OpenCVWrapper.h
-//  BisetkaPhotosphere
+//  Capture360
 //
 //  Objective-C wrapper for OpenCV C++ functions
 //

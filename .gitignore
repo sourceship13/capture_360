@@ -31,10 +31,13 @@ vendor/
 # OpenCV — downloaded at install time via scripts/download-opencv-ios.sh
 ios/opencv2.framework/
 
-# Legacy standalone app files (kept locally for reference, not tracked)
+# Legacy standalone app artifacts (ios/ is now library-only)
 ios/BisetkaPhotosphere.xcodeproj/
 ios/BisetkaPhotosphere.xcworkspace/
-ios/BisetkaPhotosphere/AppDelegate.swift
+ios/Podfile
+ios/Podfile.lock
+ios/Pods/
+ios/build/
 App.tsx
 app.json
 

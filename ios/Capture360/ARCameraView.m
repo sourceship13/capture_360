@@ -1,6 +1,6 @@
 //
 //  ARCameraView.m
-//  BisetkaPhotosphere
+//  Capture360
 //
 //  ARSCNView-backed camera preview with ARKit world tracking.
 //  Captures frames at ~2fps with synchronized camera pose for stitching.
@@ -26,6 +26,7 @@ static inline float CLAMP(float x, float lo, float hi) {
     NSTimeInterval _lastOrientationSend;
     NSTimeInterval _lastFrameCapture;
     BOOL _hasAnchor;
+    BOOL _arSessionRunning;
     simd_float3 _anchorPosition;
 }
 
@@ -35,24 +36,44 @@ static inline float CLAMP(float x, float lo, float hi) {
         _ciContext = [CIContext contextWithOptions:nil];
         _lastOrientationSend = 0;
         _lastFrameCapture = 0;
+        _arSessionRunning = NO;
 
         _arView = [[ARSCNView alloc] initWithFrame:self.bounds];
         _arView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         _arView.session.delegate = self;
         [self addSubview:_arView];
 
-        // Start AR world tracking
-        ARWorldTrackingConfiguration *config = [[ARWorldTrackingConfiguration alloc] init];
-        config.worldAlignment = ARWorldAlignmentGravity;
-        [_arView.session runWithConfiguration:config];
-
-        NSLog(@"[ARCameraView] Initialized – AR session running");
+        NSLog(@"[ARCameraView] Initialized – AR session deferred until view is in window");
     }
     return self;
 }
 
+- (void)didMoveToWindow {
+    [super didMoveToWindow];
+    if (self.window && !_arSessionRunning) {
+        [self startARSession];
+    } else if (!self.window && _arSessionRunning) {
+        [_arView.session pause];
+        _arSessionRunning = NO;
+        NSLog(@"[ARCameraView] AR session paused (removed from window)");
+    }
+}
+
+- (void)startARSession {
+    if (![ARWorldTrackingConfiguration isSupported]) {
+        NSLog(@"[ARCameraView] ERROR: ARWorldTrackingConfiguration is NOT supported on this device");
+        return;
+    }
+    ARWorldTrackingConfiguration *config = [[ARWorldTrackingConfiguration alloc] init];
+    config.worldAlignment = ARWorldAlignmentGravity;
+    [_arView.session runWithConfiguration:config];
+    _arSessionRunning = YES;
+    NSLog(@"[ARCameraView] AR session started");
+}
+
 - (void)removeFromSuperview {
     [_arView.session pause];
+    _arSessionRunning = NO;
     NSLog(@"[ARCameraView] AR session paused (view removed)");
     [super removeFromSuperview];
 }

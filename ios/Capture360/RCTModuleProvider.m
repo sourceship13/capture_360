@@ -1,6 +1,6 @@
 //
 //  RCTModuleProvider.m
-//  BisetkaPhotosphere
+//  Capture360
 //
 
 #import "RCTModuleProvider.h"

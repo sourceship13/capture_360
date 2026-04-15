@@ -68,6 +68,12 @@ content = content.replace(
     '${PODS_ROOT}/Headers/Public/RCTDeprecation/RCTDeprecation.modulemap'
 )
 
+# Fix react-native-bisetka-photosphere modulemap path
+content = content.replace(
+    '${PODS_CONFIGURATION_BUILD_DIR}/react-native-bisetka-photosphere/react_native_bisetka_photosphere.modulemap',
+    '${PODS_ROOT}/Headers/Public/react_native_bisetka_photosphere/react-native-bisetka-photosphere.modulemap'
+)
+
 # Write the file
 with open(xcconfig_file, "w") as f:
     f.write(content)

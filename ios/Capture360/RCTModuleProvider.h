@@ -1,6 +1,6 @@
 //
 //  RCTModuleProvider.h
-//  BisetkaPhotosphere
+//  Capture360
 //
 //  Helper to manually register React Native modules
 //

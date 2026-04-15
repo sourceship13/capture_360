@@ -11,29 +11,29 @@ Pod::Spec.new do |s|
   # Include all native source files
   s.source_files = [
     "ios/RCTPhotosphereModule.{h,mm}",
-    "ios/BisetkaPhotosphere/OpenCVWrapper.{h,mm}",
-    "ios/BisetkaPhotosphere/ARCameraView.{h,m}",
-    "ios/BisetkaPhotosphere/ARCameraViewManager.m",
-    "ios/BisetkaPhotosphere/RCTNativeDeviceInfoModule.{h,m}",
-    "ios/BisetkaPhotosphere/RCTVideoRecorderModule.{h,m}",
-    "ios/BisetkaPhotosphere/RCTModuleProvider.{h,m}",
-    "ios/BisetkaPhotosphere/PhotosphereStitcher.{m,swift}",
+    "ios/Capture360/OpenCVWrapper.{h,mm}",
+    "ios/Capture360/ARCameraView.{h,m}",
+    "ios/Capture360/ARCameraViewManager.m",
+    "ios/Capture360/RCTNativeDeviceInfoModule.{h,m}",
+    "ios/Capture360/RCTVideoRecorderModule.{h,m}",
+    "ios/Capture360/RCTModuleProvider.{h,m}",
+    "ios/Capture360/PhotosphereStitcher.{m,swift}",
   ]
 
   # Exclude app-only files
   s.exclude_files = []
 
   s.resource_bundles = {
-    "react-native-bisetka-photosphere-privacy" => ["ios/BisetkaPhotosphere/PrivacyInfo.xcprivacy"],
+    "react-native-bisetka-photosphere-privacy" => ["ios/Capture360/PrivacyInfo.xcprivacy"],
   }
 
   s.public_header_files = [
     "ios/RCTPhotosphereModule.h",
-    "ios/BisetkaPhotosphere/OpenCVWrapper.h",
-    "ios/BisetkaPhotosphere/ARCameraView.h",
-    "ios/BisetkaPhotosphere/RCTNativeDeviceInfoModule.h",
-    "ios/BisetkaPhotosphere/RCTVideoRecorderModule.h",
-    "ios/BisetkaPhotosphere/RCTModuleProvider.h",
+    "ios/Capture360/OpenCVWrapper.h",
+    "ios/Capture360/ARCameraView.h",
+    "ios/Capture360/RCTNativeDeviceInfoModule.h",
+    "ios/Capture360/RCTVideoRecorderModule.h",
+    "ios/Capture360/RCTModuleProvider.h",
   ]
 
   # OpenCV framework — downloaded via prepare_command, not checked into git
