@@ -1,67 +1,106 @@
-platform :ios, '15.0'
-use_frameworks! :linkage => :static
+# Disable new architecture to use legacy bridge
+ENV['RCT_NEW_ARCH_ENABLED'] = '0'
+
+# Resolve react_native_pods.rb with node to allow for hoisting
+require Pod::Executable.execute_command('node', ['-p',
+  'require.resolve("react-native/scripts/react_native_pods.rb")'
+]).strip
+
+platform :ios, min_ios_version_supported
+prepare_react_native_project!
 
 target 'Capture360Example' do
-  pod 'React-core', :path => '../node_modules/react-native/'
-  pod 'React-apis', :path => '../node_modules/react-native/'
-  pod 'React-runtimescheduler', :path => '../node_modules/react-native/'
-  pod 'React-rendererdebug', :path => '../node_modules/react-native/'
-  pod 'React-utils', :path => '../node_modules/react-native/'
-  pod 'React-cxxreact', :path => '../node_modules/react-native/'
-  pod 'React-jsi', :path => '../node_modules/react-native/'
-  pod 'React-jsitracing', :path => '../node_modules/react-native/'
-  pod 'React-jsinspector', :path => '../node_modules/react-native/'
-  pod 'React-perflogger', :path => '../node_modules/react-native/'
-  pod 'React-devsettings', :path => '../node_modules/react-native/'
-  pod 'React-debug', :path => '../node_modules/react-native/'
-  
-  pod 'React-android', :path => '../node_modules/react-native/'
-  
-  pod 'RCT-folly', :path => '../node_modules/react-native/third-party-podspecs/RCT-Folly'
-  pod 'RCTRequired', :path => '../node_modules/react-native/Libraries/RCTRequired'
-  pod 'RCTTypeSafety', :path => '../node_modules/react-native/Libraries/TypeSafety'
-  pod 'ReactCommon/turbomodule/core', :path => '../node_modules/react-native/ReactCommon'
-  pod 'React-common', :path => '../node_modules/react-native/ReactCommon'
-  
-  pod 'Boost', :path => '../node_modules/react-native/third-party-podspecs/Boost'
-  pod 'DoubleConversion', :path => '../node_modules/react-native/third-party-podspecs/DoubleConversion'
-  pod 'glog', :path => '../node_modules/react-native/third-party-podspecs/glog'
-  
-  pod 'FBLazyVector', :path => "../node_modules/react-native/Libraries/FBLazyVector"
-  pod 'FBReactNativeSpec', :path => "../node_modules/react-native/React/FBReactNativeSpec"
-  
-  pod 'RCT-Folly', '2024.01.01.00'
-  pod 'RCTRequired', '0.83.1'
-  pod 'RCTTypeSafety', '0.83.1'
-  pod 'React', '0.83.1'
-  pod 'React-Core', '0.83.1'
-  pod 'React-CoreModules', '0.83.1'
-  pod 'React-RCTActionSheet', '0.83.1'
-  pod 'React-RCTAnimation', '0.83.1'
-  pod 'React-RCTBlob', '0.83.1'
-  pod 'React-RCTImage', '0.83.1'
-  pod 'React-RCTLinking', '0.83.1'
-  pod 'React-RCTNetwork', '0.83.1'
-  pod 'React-RCTSettings', '0.83.1'
-  pod 'React-RCTText', '0.83.1'
-  pod 'React-RCTVibration', '0.83.1'
-  
-  pod 'React-jsi', '0.83.1'
-  pod 'React-cxxreact', '0.83.1'
-  pod 'React-jsinspector', '0.83.1'
-  pod 'React-perflogger', '0.83.1'
-  pod 'React-debug', '0.83.1'
-  
-  pod 'ReactCommon/turbomodule/core', '0.83.1'
-  pod 'ReactCommon/callinvoker', '0.83.1'
-  
-  pod 'DoubleConversion', '1.1.6'
-  pod 'glog', '0.3.5'
-  pod 'Boost', '1.83.0'
-  
-  pod 'rn-fetch-blob', :path => '../node_modules/rn-fetch-blob'
-  
-  target 'Capture360ExampleTests' do
-    inherit! :search_paths
+  config = use_native_modules!
+
+  use_react_native!(
+    :path => config[:reactNativePath],
+    # An absolute path to your application root.
+    :app_path => "#{Pod::Config.instance.installation_root}/.."
+  )
+
+  post_install do |installer|
+    react_native_post_install(
+      installer,
+      config[:reactNativePath],
+      :mac_catalyst_enabled => false,
+      # :ccache_enabled => true
+    )
+
+    # Fix fmt 11.x consteval errors with Apple Clang — patch header directly
+    fmt_base = File.join(installer.sandbox.root, 'fmt', 'include', 'fmt', 'base.h')
+    if File.exist?(fmt_base)
+      # Make writable (CocoaPods sets read-only)
+      File.chmod(0644, fmt_base)
+      content = File.read(fmt_base)
+      unless content.match?(/^#if defined\(__apple_build_version__\)\n#  define FMT_USE_CONSTEVAL 0/)
+        content.sub!(
+          "#if !defined(__cpp_lib_is_constant_evaluated)\n#  define FMT_USE_CONSTEVAL 0",
+          "#if defined(__apple_build_version__)\n#  define FMT_USE_CONSTEVAL 0\n#elif !defined(__cpp_lib_is_constant_evaluated)\n#  define FMT_USE_CONSTEVAL 0"
+        )
+        File.write(fmt_base, content)
+      end
+    end
+
+    # Fix modulemap paths for static libraries
+    # CocoaPods generates -fmodule-map-file= refs to ${PODS_CONFIGURATION_BUILD_DIR}
+    # but static libs don't produce modulemaps there. Redirect to Target Support Files.
+    # EXCEPTION: Pods with Swift sources must keep PODS_CONFIGURATION_BUILD_DIR paths
+    # because Xcode generates the *-Swift.h header there at build time.
+    pods_root = installer.sandbox.root.to_s
+
+    # Detect pods with Swift sources — these need build-dir modulemap paths
+    swift_pods = Set.new
+    installer.pod_targets.each do |pod_target|
+      pod_target.file_accessors.each do |accessor|
+        if accessor.source_files.any? { |f| f.to_s.end_with?('.swift') }
+          swift_pods.add(pod_target.label.sub('Pods-Capture360Example/', ''))
+          break
+        end
+      end
+    end
+    puts "[modulemap fix] Swift pods (skipping): #{swift_pods.to_a.sort.join(', ')}"
+
+    # Build map: pod_dir_name -> actual modulemap filename on disk
+    pod_modulemaps = {}
+    Dir.glob(File.join(pods_root, 'Target Support Files', '*', '*.modulemap')).each do |mm|
+      pod_dir = File.basename(File.dirname(mm))
+      next if swift_pods.include?(pod_dir)
+      pod_modulemaps[pod_dir] = File.basename(mm)
+    end
+    puts "[modulemap fix] Found #{pod_modulemaps.length} non-Swift pods with modulemaps to fix"
+
+    Dir.glob(File.join(pods_root, 'Target Support Files', '**', '*.xcconfig')).each do |xcconfig_path|
+      content = File.read(xcconfig_path)
+      original = content.dup
+
+      pod_modulemaps.each do |pod_name, mm_file|
+        escaped = Regexp.escape(pod_name)
+
+        # 1) Fix -fmodule-map-file= references (any .modulemap filename in that pod dir)
+        content.gsub!(
+          /-fmodule-map-file="\$\{PODS_CONFIGURATION_BUILD_DIR\}\/#{escaped}\/[^"]*\.modulemap"/,
+          "-fmodule-map-file=\"${PODS_ROOT}/Target Support Files/#{pod_name}/#{mm_file}\""
+        )
+      end
+
+      # 2) Fix SWIFT_INCLUDE_PATHS — redirect pod build dirs to Target Support Files
+      content.gsub!(/^(SWIFT_INCLUDE_PATHS\s*=.*)$/) do |line|
+        new_line = line.dup
+        pod_modulemaps.each do |pod_name, _|
+          escaped = Regexp.escape(pod_name)
+          new_line.gsub!(
+            /"\$\{PODS_CONFIGURATION_BUILD_DIR\}\/#{escaped}"/,
+            "\"${PODS_ROOT}/Target Support Files/#{pod_name}\""
+          )
+        end
+        new_line
+      end
+
+      if content != original
+        File.write(xcconfig_path, content)
+        short = xcconfig_path.sub(pods_root + '/', '')
+        puts "[modulemap fix] Fixed: #{short}"
+      end
+    end
   end
 end

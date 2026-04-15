@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="primaryColor">#2196F3</color>
-    <color name="accentColor">#FFC107</color>
+    <color name="launcher_background">#6200EE</color>
 </resources>

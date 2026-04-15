@@ -1,17 +1,11 @@
-pluginManagement {
+pluginManagement { 
     repositories {
         gradlePluginPortal()
-        google()
         mavenCentral()
+        google()
     }
 }
 
-plugins {
-    id "com.android.library" version "8.6.0" apply false
-    id "org.jetbrains.kotlin.android" version "2.1.20" apply false
-}
+rootProject.name = 'Capture360Example'
 
-rootProject.name = "@sourceship/capture360"
-
-include ":app"
-project(":app").projectDir = new File(rootProject.projectDir, "app")
+include ':app'

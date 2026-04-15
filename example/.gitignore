@@ -1,0 +1,51 @@
+# OSX
+.DS_Store
+
+# node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Xcode
+build/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata
+*.xccheckout
+*.moved-aside
+DerivedData
+*.hmap
+*.ipa
+*.xcuserstate
+**/.xcode.env.local
+
+# Android
+*.apk
+*.aab
+*.dex
+*.class
+**/android/app/build/
+**/android/.gradle/
+local.properties
+
+# CocoaPods
+ios/Pods/
+ios/Podfile.lock
+
+# Bundle artifacts
+*.jsbundle
+
+# Ruby / Bundler
+vendor/
+
+# Temporary files
+*.log
+
+# OpenCV vendored framework
+ios/opencv2.framework/

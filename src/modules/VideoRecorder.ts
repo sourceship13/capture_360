@@ -1,16 +1,18 @@
 /**
- * Native video utility module — frame extraction + camera permissions.
- * Camera preview handled by native ARCameraView.
+ * VideoRecorder — JS wrapper for the native VideoRecorder module.
+ *
+ * Provides camera permission requests and video frame extraction.
  */
-
 import {NativeModules} from 'react-native';
 
-interface ExtractedFrame {
+const {VideoRecorder} = NativeModules;
+
+export interface ExtractedFrame {
   path: string;
   timestamp: number;
 }
 
-interface ExtractFramesResult {
+export interface ExtractFramesResult {
   success: boolean;
   frameCount: number;
   frames: ExtractedFrame[];
@@ -18,20 +20,16 @@ interface ExtractFramesResult {
   duration: number;
 }
 
-interface VideoRecorderModule {
-  extractFrames(videoPath: string, fps: number): Promise<ExtractFramesResult>;
-  requestCameraPermission(): Promise<'granted' | 'denied'>;
-  testModule(): Promise<{success: boolean; message: string}>;
-}
+export default {
+  requestCameraPermission(): Promise<'granted' | 'denied'> {
+    return VideoRecorder.requestCameraPermission();
+  },
 
-console.log('[VideoRecorder] Available modules:', Object.keys(NativeModules).filter(k => k.includes('Video') || k.includes('Record')));
+  extractFrames(videoPath: string, fps: number): Promise<ExtractFramesResult> {
+    return VideoRecorder.extractFrames(videoPath, fps);
+  },
 
-const {VideoRecorder} = NativeModules;
-
-if (!VideoRecorder) {
-  console.error('[VideoRecorder] Module not found. All modules:', Object.keys(NativeModules));
-  throw new Error('VideoRecorder native module not found');
-}
-
-export default VideoRecorder as VideoRecorderModule;
-export type {ExtractedFrame, ExtractFramesResult};
+  testModule(): Promise<{success: boolean; message: string}> {
+    return VideoRecorder.testModule();
+  },
+};

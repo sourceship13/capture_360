@@ -3,10 +3,8 @@ ENV['RCT_NEW_ARCH_ENABLED'] = '0'
 
 # Resolve react_native_pods.rb with node to allow for hoisting
 require Pod::Executable.execute_command('node', ['-p',
-  'require.resolve(
-    "react-native/scripts/react_native_pods.rb",
-    {paths: [process.argv[1]]},
-  )', __dir__]).strip
+  "require.resolve(\"/Users/alpha/Documents/tor/sera/client_meta/arm_tech/no.limit.bisetka/node_modules/react-native/scripts/react_native_pods.rb\")"
+]).strip
 
 platform :ios, min_ios_version_supported
 prepare_react_native_project!
@@ -33,5 +31,20 @@ target 'BisetkaPhotosphere' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+
+    # Fix fmt 11.x consteval errors with Apple Clang — patch header directly
+    fmt_base = File.join(installer.sandbox.root, 'fmt', 'include', 'fmt', 'base.h')
+    if File.exist?(fmt_base)
+      # Make writable (CocoaPods sets read-only)
+      File.chmod(0644, fmt_base)
+      content = File.read(fmt_base)
+      unless content.include?('consteval is broken in Apple clang')
+        content.sub!(
+          "#if !defined(__cpp_lib_is_constant_evaluated)\n#  define FMT_USE_CONSTEVAL 0",
+          "#if defined(__apple_build_version__)\n#  define FMT_USE_CONSTEVAL 0  // consteval is broken in Apple clang\n#elif !defined(__cpp_lib_is_constant_evaluated)\n#  define FMT_USE_CONSTEVAL 0"
+        )
+        File.write(fmt_base, content)
+      end
+    end
   end
 end

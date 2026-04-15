@@ -1,5 +1,5 @@
 Pod::Spec.new do |s|
-  s.name         = "@sourceship/capture360"
+  s.name         = "react-native-bisetka-photosphere"
   s.version      = "1.0.0"
   s.summary      = "React Native panorama capture and equirectangular stitching"
   s.homepage     = "https://github.com/bisetka/react-native-bisetka-photosphere"
@@ -8,7 +8,7 @@ Pod::Spec.new do |s|
   s.source       = { :git => "https://github.com/bisetka/react-native-bisetka-photosphere.git", :tag => "v#{s.version}" }
   s.platform     = :ios, "15.0"
 
-  # Include all native source files EXCEPT the standalone app files
+  # Include all native source files
   s.source_files = [
     "ios/RCTPhotosphereModule.{h,mm}",
     "ios/BisetkaPhotosphere/OpenCVWrapper.{h,mm}",
@@ -26,6 +26,15 @@ Pod::Spec.new do |s|
     "ios/BisetkaPhotosphere/BisetkaPhotosphere-Bridging-Header.h",
   ]
 
+  s.public_header_files = [
+    "ios/RCTPhotosphereModule.h",
+    "ios/BisetkaPhotosphere/OpenCVWrapper.h",
+    "ios/BisetkaPhotosphere/ARCameraView.h",
+    "ios/BisetkaPhotosphere/RCTNativeDeviceInfoModule.h",
+    "ios/BisetkaPhotosphere/RCTVideoRecorderModule.h",
+    "ios/BisetkaPhotosphere/RCTModuleProvider.h",
+  ]
+
   # OpenCV framework — downloaded via prepare_command, not checked into git
   s.vendored_frameworks = "ios/opencv2.framework"
   s.prepare_command = "bash scripts/download-opencv-ios.sh"
@@ -37,6 +46,6 @@ Pod::Spec.new do |s|
   # Needed because we mix ObjC / ObjC++ / Swift
   s.pod_target_xcconfig = {
     "CLANG_CXX_LANGUAGE_STANDARD" => "c++17",
-    "SWIFT_OBJC_BRIDGING_HEADER" => ""
+    "DEFINES_MODULE" => "YES",
   }
 end
