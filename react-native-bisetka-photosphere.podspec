@@ -21,10 +21,11 @@ Pod::Spec.new do |s|
   ]
 
   # Exclude app-only files
-  s.exclude_files = [
-    "ios/BisetkaPhotosphere/AppDelegate.swift",
-    "ios/BisetkaPhotosphere/BisetkaPhotosphere-Bridging-Header.h",
-  ]
+  s.exclude_files = []
+
+  s.resource_bundles = {
+    "react-native-bisetka-photosphere-privacy" => ["ios/BisetkaPhotosphere/PrivacyInfo.xcprivacy"],
+  }
 
   s.public_header_files = [
     "ios/RCTPhotosphereModule.h",
