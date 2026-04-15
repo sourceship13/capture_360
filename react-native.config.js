@@ -7,8 +7,8 @@ module.exports = {
       android: {
         sourceDir: './android',
         packageImportPath:
-          'import com.bisetkaphotosphere.turbomodule.PhotospherePackage;',
-        packageInstance: 'new PhotospherePackage()',
+          'import com.bisetkaphotosphere.turbomodule.Capture360Package;',
+        packageInstance: 'new Capture360Package()',
       },
     },
   },

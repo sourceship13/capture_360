@@ -1,16 +1,20 @@
 apply plugin: "com.android.application"
+apply plugin: "org.jetbrains.kotlin.android"
 
 android {
     namespace "com.capture360example"
-    compileSdkVersion rootProject.ext.compileSdkVersion
+    compileSdk 35
+
+    buildFeatures {
+        buildConfig true
+    }
 
     defaultConfig {
         applicationId "com.capture360example"
-        minSdkVersion rootProject.ext.minSdkVersion
-        targetSdkVersion rootProject.ext.targetSdkVersion
+        minSdkVersion 24
+        targetSdkVersion 35
         versionCode 1
         versionName "1.0"
-        multiDexEnabled true
     }
 
     buildTypes {
@@ -22,15 +26,17 @@ android {
 
     packagingOptions {
         pickFirst "**/libc++_shared.so"
-    }
-
-    lintOptions {
-        abortOnError false
-        checkReleaseBuilds false
+        pickFirst "**/libfbjni.so"
     }
 }
 
 dependencies {
-    implementation fileTree(dir: "libs", include: ["*.jar"])
-    implementation 'androidx.appcompat:appcompat:1.6.1'
+    def reactNativeVersion = "0.83.1"
+    implementation("com.facebook.react:react-android:$reactNativeVersion")
+
+    def jscFlavor = 'org.webkit:android-jsc:+'
+    implementation jscFlavor
+
+    // Library module
+    implementation project(':react-native-bisetka-photosphere')
 }

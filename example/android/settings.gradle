@@ -1,11 +1,10 @@
-pluginManagement { 
-    repositories {
-        gradlePluginPortal()
-        mavenCentral()
-        google()
-    }
-}
+pluginManagement { includeBuild("../node_modules/@react-native/gradle-plugin") }
+plugins { id("com.facebook.react.settings") }
 
 rootProject.name = 'Capture360Example'
 
 include ':app'
+include ':react-native-bisetka-photosphere'
+project(':react-native-bisetka-photosphere').projectDir = new File(rootProject.projectDir, '../../android')
+
+includeBuild('../node_modules/@react-native/gradle-plugin')

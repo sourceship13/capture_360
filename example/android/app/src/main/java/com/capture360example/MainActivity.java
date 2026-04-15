@@ -1,12 +1,18 @@
 package com.capture360example;
 
-import android.os.Bundle;
-import androidx.appcompat.app.AppCompatActivity;
+import com.facebook.react.ReactActivity;
+import com.facebook.react.ReactActivityDelegate;
+import com.facebook.react.defaults.DefaultReactActivityDelegate;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends ReactActivity {
 
   @Override
-  protected void onCreate(Bundle savedInstanceState) {
-    super.onCreate(savedInstanceState);
+  protected String getMainComponentName() {
+    return "Capture360Example";
+  }
+
+  @Override
+  protected ReactActivityDelegate createReactActivityDelegate() {
+    return new DefaultReactActivityDelegate(this, getMainComponentName(), false);
   }
 }
