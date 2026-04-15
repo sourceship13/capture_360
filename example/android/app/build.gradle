@@ -1,6 +1,8 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 
+def jscFlavor = 'org.webkit:android-jsc:+'
+
 android {
     namespace "com.capture360example"
     compileSdk 35
@@ -28,13 +30,20 @@ android {
         pickFirst "**/libc++_shared.so"
         pickFirst "**/libfbjni.so"
     }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
 }
 
 dependencies {
     def reactNativeVersion = "0.83.1"
     implementation("com.facebook.react:react-android:$reactNativeVersion")
-
-    def jscFlavor = 'org.webkit:android-jsc:+'
     implementation jscFlavor
 
     // Library module
