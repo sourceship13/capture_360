@@ -1,6 +1,12 @@
 # Disable new architecture to use legacy bridge
 ENV['RCT_NEW_ARCH_ENABLED'] = '0'
 
+# Use static frameworks (required for React Native bridging headers)
+use_frameworks! :linkage => :static
+
+# Create workspace file
+workspace 'Capture360Example'
+
 # Resolve react_native_pods.rb with node to allow for hoisting
 require Pod::Executable.execute_command('node', ['-p',
   'require.resolve("react-native/scripts/react_native_pods.rb")'
