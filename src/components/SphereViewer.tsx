@@ -54,7 +54,7 @@ const VIEWER_HTML = `<!DOCTYPE html>
     'precision mediump float;',
     'varying vec2 v;',
     'uniform sampler2D t;',
-    'uniform float uYaw,uPitch,uFov,uAsp;',
+    'uniform float uYaw,uPitch,uFov,uAsp,uVShift;',
     '#define PI 3.14159265',
     'void main(){',
     '  float hf=uFov*.5;',
@@ -67,7 +67,7 @@ const VIEWER_HTML = `<!DOCTYPE html>
     '  r=vec3(cy*r.x+sy*r.z,r.y,-sy*r.x+cy*r.z);',
     '  float lon=atan(r.x,-r.z);',
     '  float lat=asin(clamp(r.y,-1.,1.));',
-    '  vec2 uv=vec2(-lon/(2.*PI)+.5,-lat/PI+.5);',
+    '  vec2 uv=vec2(-lon/(2.*PI)+.5,-lat/PI+.5+uVShift);',
     '  gl_FragColor=texture2D(t,uv);',
     '}'
   ].join('\\n');
@@ -127,6 +127,9 @@ const VIEWER_HTML = `<!DOCTYPE html>
     img.src=src;
   }
 
+  var vShift=0;
+  window._setVShift=function(s){ vShift=s; };
+
   function render(){
     requestAnimationFrame(render);
     if(!prog||!texReady)return;
@@ -138,6 +141,7 @@ const VIEWER_HTML = `<!DOCTYPE html>
     gl.uniform1f(gl.getUniformLocation(prog,'uPitch'),finalPitch*Math.PI/180);
     gl.uniform1f(gl.getUniformLocation(prog,'uFov'),fov*Math.PI/180);
     gl.uniform1f(gl.getUniformLocation(prog,'uAsp'),asp);
+    gl.uniform1f(gl.getUniformLocation(prog,'uVShift'),vShift);
     gl.uniform1i(gl.getUniformLocation(prog,'t'),0);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D,tex);
@@ -236,13 +240,16 @@ type Props = {
   attitude?: Attitude;
   /** Enable gyroscope-driven panning (requires attitude to be provided) */
   gyroEnabled?: boolean;
+  /** Shift the virtual eye level up (positive) or down (negative) within the sphere.
+   *  Range ~0.0–0.15; 0.08 ≈ standing height in a typical room panorama. */
+  heightOffset?: number;
   /** Initial camera position (yaw/pitch in degrees) — defaults to first shot's orientation */
   initialYaw?: number;
   initialPitch?: number;
 };
 
-export default function SphereViewer({imagePath, placeholderSource, attitude, gyroEnabled = false, initialYaw = 0, initialPitch = 0}: Props) {
-  console.log('[SphereViewer] Mounting with initial:', {initialYaw, initialPitch, gyroEnabled});
+export default function SphereViewer({imagePath, placeholderSource, attitude, gyroEnabled = false, heightOffset = 0, initialYaw = 0, initialPitch = 0}: Props) {
+  console.log('[SphereViewer] Mounting with initial:', {initialYaw, initialPitch, gyroEnabled, heightOffset});
   const webRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -257,6 +264,9 @@ export default function SphereViewer({imagePath, placeholderSource, attitude, gy
       try {
         if (window._setInitialView) {
           window._setInitialView(${initialYaw}, ${initialPitch});
+        }
+        if (window._setVShift) {
+          window._setVShift(${heightOffset});
         }
       } catch(e) {}
       true;
