@@ -50,3 +50,6 @@ app.json
 .DS_Store
 .idea/
 *.iml
+
+# Auth tokens
+.npmrc
