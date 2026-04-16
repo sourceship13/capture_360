@@ -6,10 +6,11 @@
  * Reads the image via readFileBase64 and renders in a WebView.
  */
 import React, {useCallback, useRef, useState} from 'react';
-import {View, StyleSheet, ActivityIndicator, Text} from 'react-native';
+import {View, StyleSheet, ActivityIndicator, Text, Platform, Image} from 'react-native';
 import {WebView} from 'react-native-webview';
 import type {WebViewMessageEvent} from 'react-native-webview';
 import {readFileBase64} from '../modules/NativePhotosphere';
+import RNFS from 'react-native-fs';
 
 const VIEWER_HTML = `<!DOCTYPE html>
 <html>
@@ -172,6 +173,7 @@ const VIEWER_HTML = `<!DOCTYPE html>
   },{passive:false});
 
   window._loadBase64=function(b64){loadImg('data:image/jpeg;base64,'+b64);};
+  window._loadFile=function(url){loadImg(url);};
 
   function handleMsg(e){
     try{
@@ -189,10 +191,12 @@ const VIEWER_HTML = `<!DOCTYPE html>
 </html>`;
 
 type Props = {
-  imagePath: string;
+  imagePath?: string;
+  /** A require()'d image to use as placeholder when imagePath is not provided */
+  placeholderSource?: number;
 };
 
-export default function PanoramaViewer({imagePath}: Props) {
+export default function PanoramaViewer({imagePath, placeholderSource}: Props) {
   const webRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -202,16 +206,55 @@ export default function PanoramaViewer({imagePath}: Props) {
     if (sentRef.current) return;
     sentRef.current = true;
     try {
-      const base64 = await readFileBase64(imagePath);
-      webRef.current?.injectJavaScript(`
-        try { window._loadBase64(${JSON.stringify(base64)}); }
-        catch(e) { if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type:'log',msg:'err: '+e.message})); }
-        true;
-      `);
+      if (imagePath) {
+        const base64 = await readFileBase64(imagePath);
+        webRef.current?.injectJavaScript(`
+          try { window._loadBase64(${JSON.stringify(base64)}); }
+          catch(e) { if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type:'log',msg:'err: '+e.message})); }
+          true;
+        `);
+      } else if (placeholderSource) {
+        // No image captured yet — load bundled placeholder
+        const resolved = Image.resolveAssetSource(placeholderSource);
+        let base64: string | null = null;
+
+        if (Platform.OS === 'ios') {
+          const uri = resolved.uri;
+          if (uri.startsWith('file://')) {
+            base64 = await RNFS.readFile(uri.replace('file://', ''), 'base64');
+          } else {
+            const response = await fetch(uri);
+            const blob = await response.blob();
+            base64 = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const result = reader.result as string;
+                resolve(result.split(',')[1]);
+              };
+              reader.readAsDataURL(blob);
+            });
+          }
+        } else {
+          const uri = resolved.uri;
+          if (uri.startsWith('file://')) {
+            base64 = await RNFS.readFile(uri.replace('file://', ''), 'base64');
+          } else {
+            base64 = await RNFS.readFileAssets(uri.replace('asset://', ''), 'base64');
+          }
+        }
+
+        if (base64) {
+          webRef.current?.injectJavaScript(`
+            try { window._loadBase64(${JSON.stringify(base64)}); }
+            catch(e) { if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type:'log',msg:'placeholder err: '+e.message})); }
+            true;
+          `);
+        }
+      }
     } catch (e: any) {
       setError(e.message || 'Failed to read file');
     }
-  }, [imagePath]);
+  }, [imagePath, placeholderSource]);
 
   const onMessage = useCallback((event: WebViewMessageEvent) => {
     try {

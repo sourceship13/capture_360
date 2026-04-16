@@ -20,6 +20,7 @@
   "files": [
     "src/",
     "lib/",
+    "assets/",
     "ios/RCTPhotosphereModule.h",
     "ios/RCTPhotosphereModule.mm",
     "ios/Capture360/OpenCVWrapper.h",

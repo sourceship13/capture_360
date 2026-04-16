@@ -6,10 +6,11 @@
  * it into the WebView as a data URL.
  */
 import React, {useCallback, useRef, useState} from 'react';
-import {View, StyleSheet, ActivityIndicator, Text} from 'react-native';
+import {View, StyleSheet, ActivityIndicator, Text, Platform, Image} from 'react-native';
 import {WebView} from 'react-native-webview';
 import type {WebViewMessageEvent} from 'react-native-webview';
 import {readFileBase64} from '../modules/NativePhotosphere';
+import RNFS from 'react-native-fs';
 import type {Attitude} from '../hooks/useAttitude';
 
 // ── Raw WebGL equirectangular viewer ──────────────────────────────────────────
@@ -213,8 +214,10 @@ const VIEWER_HTML = `<!DOCTYPE html>
 // ── React Native component ────────────────────────────────────────────────────
 
 type Props = {
-  /** Absolute file path to an equirectangular JPEG panorama. */
-  imagePath: string;
+  /** Absolute file path to an equirectangular JPEG panorama. If omitted, a placeholder is shown. */
+  imagePath?: string;
+  /** A require()'d image to use as placeholder when imagePath is not provided */
+  placeholderSource?: number;
   /** Device attitude (yaw/pitch/roll) from motion sensors */
   _attitude?: Attitude;
   /** Initial camera position (yaw/pitch in degrees) — defaults to first shot's orientation */
@@ -222,7 +225,7 @@ type Props = {
   initialPitch?: number;
 };
 
-export default function SphereViewer({imagePath, _attitude, initialYaw = 0, initialPitch = 0}: Props) {
+export default function SphereViewer({imagePath, placeholderSource, _attitude, initialYaw = 0, initialPitch = 0}: Props) {
   console.log('[SphereViewer] Mounting with initial:', {initialYaw, initialPitch});
   const webRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
@@ -234,23 +237,72 @@ export default function SphereViewer({imagePath, _attitude, initialYaw = 0, init
     sentRef.current = true;
 
     try {
-      console.log('[SphereViewer] reading image:', imagePath);
-      const base64 = await readFileBase64(imagePath);
-      console.log('[SphereViewer] base64 length:', base64.length);
+      if (imagePath) {
+        console.log('[SphereViewer] reading image:', imagePath);
+        const base64 = await readFileBase64(imagePath);
+        console.log('[SphereViewer] base64 length:', base64.length);
 
-      // Set initial camera position BEFORE loading image to avoid flash
-      console.log('[SphereViewer] Setting initial view:', {initialYaw, initialPitch});
-      webRef.current?.injectJavaScript(`
-        try {
-          if (window._setInitialView) {
-            window._setInitialView(${initialYaw}, ${initialPitch});
+        console.log('[SphereViewer] Setting initial view:', {initialYaw, initialPitch});
+        webRef.current?.injectJavaScript(`
+          try {
+            if (window._setInitialView) {
+              window._setInitialView(${initialYaw}, ${initialPitch});
+            }
+            window._loadBase64(${JSON.stringify(base64)});
+          } catch(e) {
+            if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type:'log',msg:'inject err: '+e.message}));
           }
-          window._loadBase64(${JSON.stringify(base64)});
-        } catch(e) {
-          if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type:'log',msg:'inject err: '+e.message}));
+          true;
+        `);
+      } else if (placeholderSource) {
+        // No image captured yet — load bundled placeholder via asset resolution
+        console.log('[SphereViewer] No imagePath, loading placeholder from asset');
+        const resolved = Image.resolveAssetSource(placeholderSource);
+        let base64: string | null = null;
+
+        if (Platform.OS === 'ios') {
+          // On iOS, resolved.uri for bundled assets is a file:// path or packager URL
+          // Use copyAssetsFileIOS for reliable access, or read directly if it's a file path
+          const uri = resolved.uri;
+          if (uri.startsWith('file://')) {
+            base64 = await RNFS.readFile(uri.replace('file://', ''), 'base64');
+          } else {
+            // Metro dev server URL — download then convert
+            const response = await fetch(uri);
+            const blob = await response.blob();
+            base64 = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const result = reader.result as string;
+                resolve(result.split(',')[1]);
+              };
+              reader.readAsDataURL(blob);
+            });
+          }
+        } else {
+          // Android: resolved.uri is a drawable resource or file path
+          const uri = resolved.uri;
+          if (uri.startsWith('file://')) {
+            base64 = await RNFS.readFile(uri.replace('file://', ''), 'base64');
+          } else {
+            base64 = await RNFS.readFileAssets(uri.replace('asset://', ''), 'base64');
+          }
         }
-        true;
-      `);
+
+        if (base64) {
+          webRef.current?.injectJavaScript(`
+            try {
+              if (window._setInitialView) {
+                window._setInitialView(${initialYaw}, ${initialPitch});
+              }
+              window._loadBase64(${JSON.stringify(base64)});
+            } catch(e) {
+              if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type:'log',msg:'placeholder err: '+e.message}));
+            }
+            true;
+          `);
+        }
+      }
       setLoading(false);
     } catch (e: any) {
       console.log('[SphereViewer] error:', e.message);
