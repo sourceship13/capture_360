@@ -1,15 +1,10 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
-
-def jscFlavor = 'org.webkit:android-jsc:+'
+apply plugin: "com.facebook.react"
 
 android {
     namespace "com.capture360example"
     compileSdk 35
-
-    buildFeatures {
-        buildConfig true
-    }
 
     defaultConfig {
         applicationId "com.capture360example"
@@ -44,7 +39,7 @@ android {
 dependencies {
     def reactNativeVersion = "0.83.1"
     implementation("com.facebook.react:react-android:$reactNativeVersion")
-    implementation jscFlavor
+    implementation("com.facebook.hermes:hermes-android:0.14.0")
 
     // Library module
     implementation project(':react-native-bisetka-photosphere')

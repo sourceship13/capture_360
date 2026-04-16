@@ -26,6 +26,8 @@ import androidx.lifecycle.LifecycleOwner
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ReactContext
 import com.facebook.react.bridge.WritableMap
+import com.facebook.react.uimanager.UIManagerHelper
+import com.facebook.react.uimanager.events.Event
 import com.facebook.react.uimanager.events.RCTEventEmitter
 import java.io.File
 import java.util.UUID
@@ -96,8 +98,26 @@ class ARCameraView(context: Context) : FrameLayout(context), SensorEventListener
         }
 
     init {
-        previewView.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+        // PERFORMANCE mode uses SurfaceView which has its own compositor surface,
+        // bypassing the TextureView layout issue in React Native Fabric.
+        previewView.implementationMode = PreviewView.ImplementationMode.PERFORMANCE
         addView(previewView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+    }
+
+    // React Native's Yoga layout engine calls layout() directly without triggering
+    // Android's standard measure cycle. Override both requestLayout and onLayout to
+    // force proper sizing of PreviewView and its internal SurfaceView.
+    private val measureAndLayout = Runnable {
+        measure(
+            MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
+            MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY)
+        )
+        layout(left, top, right, bottom)
+    }
+
+    override fun requestLayout() {
+        super.requestLayout()
+        post(measureAndLayout)
     }
 
     // ── Lifecycle ────────────────────────────────────────────────────────
@@ -450,13 +470,30 @@ class ARCameraView(context: Context) : FrameLayout(context), SensorEventListener
 
     // ── Event dispatch ───────────────────────────────────────────────────
 
+    private class ViewEvent(
+        surfaceId: Int,
+        viewId: Int,
+        private val name: String,
+        private val data: WritableMap
+    ) : Event<ViewEvent>(surfaceId, viewId) {
+        override fun getEventName(): String = name
+        override fun getEventData(): WritableMap = data
+    }
+
     private fun dispatchEvent(eventName: String, params: WritableMap) {
         val reactContext = context as? ReactContext ?: return
-        try {
-            reactContext.getJSModule(RCTEventEmitter::class.java)
-                ?.receiveEvent(id, eventName, params)
-        } catch (e: Exception) {
-            Log.w(TAG, "Could not dispatch event $eventName: ${e.message}")
+        val surfaceId = UIManagerHelper.getSurfaceId(this)
+        val dispatcher = UIManagerHelper.getEventDispatcherForReactTag(reactContext, id)
+        if (dispatcher != null) {
+            dispatcher.dispatchEvent(ViewEvent(surfaceId, id, eventName, params))
+        } else {
+            // Fallback for interop / bridge mode
+            try {
+                reactContext.getJSModule(RCTEventEmitter::class.java)
+                    ?.receiveEvent(id, eventName, params)
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not dispatch event $eventName: ${e.message}")
+            }
         }
     }
 }

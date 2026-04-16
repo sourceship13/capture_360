@@ -1,27 +1,23 @@
 package com.capture360example
 
 import android.app.Application
+import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
-import com.facebook.react.ReactNativeHost
-import com.facebook.react.ReactPackage
-import com.facebook.react.defaults.DefaultReactNativeHost
-import com.facebook.soloader.SoLoader
-import com.bisetkaphotosphere.turbomodule.Capture360Package
+import com.facebook.react.ReactHost
+import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
+import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 
 class MainApplication : Application(), ReactApplication {
 
-  override val reactNativeHost: ReactNativeHost =
-    object : DefaultReactNativeHost(this) {
-      override fun getUseDeveloperSupport(): Boolean = BuildConfig.DEBUG
-
-      override fun getPackages(): MutableList<ReactPackage> =
-        mutableListOf(Capture360Package())
-
-      override fun getJSMainModuleName(): String = "index"
-    }
+  override val reactHost: ReactHost by lazy {
+    getDefaultReactHost(
+      context = applicationContext,
+      packageList = PackageList(this).packages,
+    )
+  }
 
   override fun onCreate() {
     super.onCreate()
-    SoLoader.init(this, false)
+    loadReactNative(this)
   }
 }
