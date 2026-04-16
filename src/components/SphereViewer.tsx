@@ -42,6 +42,7 @@ const VIEWER_HTML = `<!DOCTYPE html>
   var tex=null,prog=null,texReady=false;
   var touchOffsetYaw=0,touchOffsetPitch=0;
   var isTouching=false;
+  var baseYaw=0,basePitch=0;
 
   function log(m){
     if(window.ReactNativeWebView)
@@ -135,8 +136,9 @@ const VIEWER_HTML = `<!DOCTYPE html>
     if(!prog||!texReady)return;
     gl.useProgram(prog);
     var asp=canvas.width/canvas.height;
-    var finalYaw = gyroActive && !isTouching ? smoothYaw + touchOffsetYaw : yaw;
-    var finalPitch = gyroActive && !isTouching ? Math.max(-85,Math.min(85,smoothPitch + touchOffsetPitch)) : pitch;
+    var finalYaw = (gyroActive && !isTouching ? smoothYaw : 0) + baseYaw + touchOffsetYaw;
+    var finalPitch = (gyroActive && !isTouching ? smoothPitch : 0) + basePitch + touchOffsetPitch;
+    finalPitch = Math.max(-85,Math.min(85,finalPitch));
     gl.uniform1f(gl.getUniformLocation(prog,'uYaw'),finalYaw*Math.PI/180);
     gl.uniform1f(gl.getUniformLocation(prog,'uPitch'),finalPitch*Math.PI/180);
     gl.uniform1f(gl.getUniformLocation(prog,'uFov'),fov*Math.PI/180);
@@ -185,16 +187,16 @@ const VIEWER_HTML = `<!DOCTYPE html>
   },{passive:false});
 
   var smoothYaw=0,smoothPitch=0;
-  var smoothing=0.08;  // responsive but smooth
+  var smoothing=0.25;  // snappy tracking with minimal jitter
   var gyroActive=false;
   
   window._loadBase64=function(b64){loadImg('data:image/jpeg;base64,'+b64);};
   window._loadFile=function(url){loadImg(url);};
   window._setInitialView=function(y,p){
-    // Store in degrees (shader converts to radians)
-    yaw=y;pitch=p;smoothYaw=y;smoothPitch=p;
+    baseYaw=y;basePitch=p;
+    yaw=y;pitch=p;smoothYaw=0;smoothPitch=0;
+    touchOffsetYaw=0;touchOffsetPitch=0;
     log('✅ initial view set: yaw='+y+'° pitch='+p+'°');
-    if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type:'log',msg:'✅ _setInitialView called: yaw='+y+' pitch='+p}));
   };
   window._updateAttitude=function(yawDeg,pitchDeg){
     gyroActive=true;
@@ -248,7 +250,7 @@ type Props = {
   initialPitch?: number;
 };
 
-export default function SphereViewer({imagePath, placeholderSource, attitude, gyroEnabled = false, heightOffset = 0, initialYaw = 0, initialPitch = 0}: Props) {
+export default function SphereViewer({imagePath, placeholderSource, attitude, gyroEnabled = false, heightOffset = 0, initialYaw = 180, initialPitch = 0}: Props) {
   console.log('[SphereViewer] Mounting with initial:', {initialYaw, initialPitch, gyroEnabled, heightOffset});
   const webRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
@@ -324,7 +326,7 @@ export default function SphereViewer({imagePath, placeholderSource, attitude, gy
     if (!gyroEnabled || !attitude || !webRef.current) return;
     
     const now = Date.now();
-    if (now - lastGyroRef.current < 66) return; // ~15fps
+    if (now - lastGyroRef.current < 33) return; // ~30fps
     lastGyroRef.current = now;
     
     webRef.current.injectJavaScript(`
