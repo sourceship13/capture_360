@@ -51,6 +51,10 @@
     "build:android": "cd android && ./gradlew assembleRelease",
     "build:ios": "cd ios && xcodebuild -scheme Capture360 -configuration Release"
   },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1030.0",
+    "react-native-fs": "^2.20.0"
+  },
   "peerDependencies": {
     "react": ">=18.0.0",
     "react-native": ">=0.73.0",

@@ -26,6 +26,21 @@ export {default as SphericalGuide} from './components/SphericalGuide';
 export {SPHERE_POSITIONS, NUM_SPHERE_SHOTS} from './components/SphericalGuide';
 export type {CapturePosition} from './components/SphericalGuide';
 
+// S3 Upload
+export {
+  configureS3,
+  uploadFile,
+  uploadJSON,
+  uploadSession,
+  uploadProcessedImage,
+} from './modules/S3Upload';
+export type {
+  S3UploadConfig,
+  FrameInfo,
+  SessionUploadProgress,
+  ProgressCallback,
+} from './modules/S3Upload';
+
 // Hooks
 export {usePhotosphere} from './hooks/usePhotosphere';
 export type {
@@ -43,3 +58,6 @@ export type {DeviceOrientation, UseDeviceOrientationReturn} from './hooks/useDev
 
 export {useVideoCapture, findNearestCell} from './hooks/useVideoCapture';
 export type {VideoFrame, CoverageGrid} from './hooks/useVideoCapture';
+
+export {useS3Upload} from './hooks/useS3Upload';
+export type {UploadStatus, UseS3UploadReturn} from './hooks/useS3Upload';
