@@ -28,6 +28,10 @@ ios/.xcode.env.local
 /vendor/bundle/
 vendor/
 
+# OpenCV built frameworks — build from source via scripts/download-opencv-ios.sh
+ios/opencv2.xcframework/
+ios/opencv2.framework/
+
 # OpenCV — built from source at install time via scripts/download-opencv-ios.sh
 ios/opencv2.framework/
 ios/opencv2.xcframework/

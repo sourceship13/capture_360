@@ -80,7 +80,6 @@ python3 "${SRC_DIR}/platforms/apple/build_xcframework.py" \
   --without objdetect \
   --without dnn \
   --without ml \
-  --without flann \
   --without photo \
   --without video \
   --without videoio \

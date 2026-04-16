@@ -1,0 +1,58 @@
+# Example app
+example/
+
+# Development / editor
+.vscode/
+.idea/
+.DS_Store
+
+# Source control
+.git/
+.gitignore
+
+# CI / docs / planning
+*.md
+!README.md
+
+# Build scripts for dev only
+add_stitcher_to_xcode.sh
+optimize_realistic_icons.sh
+
+# Test files
+__tests__/
+jest.config.js
+.eslintrc.js
+.prettierrc.js
+.watchmanconfig
+
+# App-level files (not library)
+App.tsx
+App.video.tsx
+App.photo.tsx.backup
+app.json
+babel.config.js
+metro.config.js
+index.js
+Gemfile
+Gemfile.lock
+
+# Temp / generated
+temp/
+tm_specs/
+avatar-style-tests/
+sessions.json
+*.log
+
+# Built OpenCV framework (consumers build via prepare_command)
+ios/opencv2.xcframework/
+ios/opencv2.framework/
+
+# iOS app-specific files
+ios/Capture360/AppDelegate.swift
+ios/Capture360/BisetkaPhotosphere-Bridging-Header.h
+ios/Capture360/Images.xcassets/
+ios/Capture360/Info.plist
+ios/Capture360/LaunchScreen.storyboard
+
+# Ruby bundle
+vendor/

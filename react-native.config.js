@@ -2,7 +2,7 @@ module.exports = {
   dependency: {
     platforms: {
       ios: {
-        podspecPath: './react-native-bisetka-photosphere.podspec',
+        podspecPath: './react-native-photosphere.podspec',
       },
       android: {
         sourceDir: './android',

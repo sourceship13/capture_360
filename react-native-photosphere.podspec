@@ -1,11 +1,11 @@
 Pod::Spec.new do |s|
-  s.name         = "react-native-bisetka-photosphere"
+  s.name         = "react-native-photosphere"
   s.version      = "1.0.0"
-  s.summary      = "React Native panorama capture and equirectangular stitching"
-  s.homepage     = "https://github.com/bisetka/react-native-bisetka-photosphere"
-  s.license      = { :type => "MIT" }
-  s.author       = "Bisetka"
-  s.source       = { :git => "https://github.com/bisetka/react-native-bisetka-photosphere.git", :tag => "v#{s.version}" }
+  s.summary      = "React Native panorama capture and equirectangular stitching with OpenCV"
+  s.homepage     = "https://github.com/sera-tech/react-native-photosphere"
+  s.license      = { :type => "UNLICENSED" }
+  s.author       = "Sera Tech"
+  s.source       = { :git => "https://github.com/sera-tech/react-native-photosphere.git", :tag => "v#{s.version}" }
   s.platform     = :ios, "15.0"
 
   # Include all native source files
@@ -24,7 +24,7 @@ Pod::Spec.new do |s|
   s.exclude_files = []
 
   s.resource_bundles = {
-    "react-native-bisetka-photosphere-privacy" => ["ios/Capture360/PrivacyInfo.xcprivacy"],
+    "react-native-photosphere-privacy" => ["ios/Capture360/PrivacyInfo.xcprivacy"],
   }
 
   s.public_header_files = [
