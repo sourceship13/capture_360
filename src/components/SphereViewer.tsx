@@ -40,6 +40,8 @@ const VIEWER_HTML = `<!DOCTYPE html>
   var yaw=0,pitch=0,fov=75;
   var txYaw=0,txPitch=0,txX=0,txY=0,lastPinch=0;
   var tex=null,prog=null,texReady=false;
+  var touchOffsetYaw=0,touchOffsetPitch=0;
+  var isTouching=false;
 
   function log(m){
     if(window.ReactNativeWebView)
@@ -130,8 +132,10 @@ const VIEWER_HTML = `<!DOCTYPE html>
     if(!prog||!texReady)return;
     gl.useProgram(prog);
     var asp=canvas.width/canvas.height;
-    gl.uniform1f(gl.getUniformLocation(prog,'uYaw'),yaw*Math.PI/180);
-    gl.uniform1f(gl.getUniformLocation(prog,'uPitch'),pitch*Math.PI/180);
+    var finalYaw = gyroActive && !isTouching ? smoothYaw + touchOffsetYaw : yaw;
+    var finalPitch = gyroActive && !isTouching ? Math.max(-85,Math.min(85,smoothPitch + touchOffsetPitch)) : pitch;
+    gl.uniform1f(gl.getUniformLocation(prog,'uYaw'),finalYaw*Math.PI/180);
+    gl.uniform1f(gl.getUniformLocation(prog,'uPitch'),finalPitch*Math.PI/180);
     gl.uniform1f(gl.getUniformLocation(prog,'uFov'),fov*Math.PI/180);
     gl.uniform1f(gl.getUniformLocation(prog,'uAsp'),asp);
     gl.uniform1i(gl.getUniformLocation(prog,'t'),0);
@@ -142,9 +146,10 @@ const VIEWER_HTML = `<!DOCTYPE html>
 
   canvas.addEventListener('touchstart',function(e){
     e.preventDefault();
+    isTouching=true;
     if(e.touches.length===1){
       txX=e.touches[0].clientX;txY=e.touches[0].clientY;
-      txYaw=yaw;txPitch=pitch;
+      txYaw=touchOffsetYaw;txPitch=touchOffsetPitch;
     }else if(e.touches.length===2){
       var dx=e.touches[0].clientX-e.touches[1].clientX;
       var dy=e.touches[0].clientY-e.touches[1].clientY;
@@ -155,10 +160,12 @@ const VIEWER_HTML = `<!DOCTYPE html>
   canvas.addEventListener('touchmove',function(e){
     e.preventDefault();
     if(e.touches.length===1){
-      // Inverted deltas for correct panning direction
-      yaw=(e.touches[0].clientX-txX)*.2+txYaw;
-      pitch=(txY-e.touches[0].clientY)*.2+txPitch;
-      pitch=Math.max(-85,Math.min(85,pitch));
+      touchOffsetYaw=(e.touches[0].clientX-txX)*.2+txYaw;
+      touchOffsetPitch=(txY-e.touches[0].clientY)*.2+txPitch;
+      touchOffsetPitch=Math.max(-85,Math.min(85,touchOffsetPitch));
+      // Also update non-gyro yaw/pitch for when gyro is off
+      yaw=smoothYaw+touchOffsetYaw;
+      pitch=Math.max(-85,Math.min(85,smoothPitch+touchOffsetPitch));
     }else if(e.touches.length===2){
       var dx=e.touches[0].clientX-e.touches[1].clientX;
       var dy=e.touches[0].clientY-e.touches[1].clientY;
@@ -167,6 +174,10 @@ const VIEWER_HTML = `<!DOCTYPE html>
       fov=Math.max(30,Math.min(120,fov));
       lastPinch=d;
     }
+  },{passive:false});
+
+  canvas.addEventListener('touchend',function(e){
+    if(e.touches.length===0) isTouching=false;
   },{passive:false});
 
   var smoothYaw=0,smoothPitch=0;
@@ -297,9 +308,14 @@ export default function SphereViewer({imagePath, placeholderSource, attitude, gy
     } catch {}
   }, []);
 
-  // Device motion tracking — when gyroEnabled, pipe attitude data to the WebView
+  // Device motion tracking — throttled to ~15fps to reduce bridge overhead and heat
+  const lastGyroRef = useRef(0);
   useEffect(() => {
     if (!gyroEnabled || !attitude || !webRef.current) return;
+    
+    const now = Date.now();
+    if (now - lastGyroRef.current < 66) return; // ~15fps
+    lastGyroRef.current = now;
     
     webRef.current.injectJavaScript(`
       if (window._updateAttitude) {
