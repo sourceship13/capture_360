@@ -185,8 +185,11 @@ const VIEWER_HTML = `<!DOCTYPE html>
     gyroActive=true;
     var targetYaw = -yawDeg;
     var targetPitch = -pitchDeg;
-    // Low-pass filter to smooth jitter
-    smoothYaw += (targetYaw - smoothYaw) * smoothing;
+    // Wrap-safe delta for yaw (avoid 360° snap at ±180° boundary)
+    var dy = targetYaw - smoothYaw;
+    if(dy > 180) dy -= 360;
+    if(dy < -180) dy += 360;
+    smoothYaw += dy * smoothing;
     smoothPitch += (targetPitch - smoothPitch) * smoothing;
     
     yaw = smoothYaw;
