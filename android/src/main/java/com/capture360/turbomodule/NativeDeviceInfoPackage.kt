@@ -1,4 +1,4 @@
-package com.bisetkaphotosphere.turbomodule
+package com.capture360.turbomodule
 
 import com.facebook.react.TurboReactPackage
 import com.facebook.react.bridge.NativeModule

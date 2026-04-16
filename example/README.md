@@ -1,6 +1,6 @@
-# @sourceship/capture360 Example
+# @sera/capture360 Example
 
-This is a demo app showing how to use the `@sourceship/capture360` React Native module.
+This is a demo app showing how to use the `@sera/capture360` React Native module.
 
 ## Features
 
@@ -28,14 +28,14 @@ npx react-native run-android
 
 1. Install the module:
 ```bash
-npm install @sourceship/capture360 react-native-webview
+npm install @sera/capture360 react-native-webview
 npx pod-install
 ```
 
 2. Import and use:
 
 ```tsx
-import {ARCameraView, PanoramaViewer} from '@sourceship/capture360';
+import {ARCameraView, PanoramaViewer} from '@sera/capture360';
 
 // In your component:
 <ARCameraView ref={cameraRef} onOrientationChange={handleOrientation} />

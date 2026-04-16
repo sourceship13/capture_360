@@ -42,5 +42,5 @@ dependencies {
     implementation("com.facebook.hermes:hermes-android:0.14.0")
 
     // Library module
-    implementation project(':react-native-bisetka-photosphere')
+    implementation project(':capture360')
 }

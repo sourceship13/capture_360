@@ -1,5 +1,5 @@
 {
-  "name": "@sourceship/capture360-example",
+  "name": "@sera/capture360-example",
   "version": "1.0.0",
   "main": "src/index.tsx",
   "scripts": {
@@ -8,7 +8,7 @@
     "start": "react-native start"
   },
   "dependencies": {
-    "@sourceship/capture360": "file:..",
+    "@sera/capture360": "file:..",
     "react": "19.2.0",
     "react-native": "0.83.1",
     "react-native-webview": "^13.16.1"

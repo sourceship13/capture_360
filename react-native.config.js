@@ -2,12 +2,12 @@ module.exports = {
   dependency: {
     platforms: {
       ios: {
-        podspecPath: './react-native-photosphere.podspec',
+        podspecPath: './capture360.podspec',
       },
       android: {
         sourceDir: './android',
         packageImportPath:
-          'import com.bisetkaphotosphere.turbomodule.Capture360Package;',
+          'import com.capture360.turbomodule.Capture360Package;',
         packageInstance: 'new Capture360Package()',
       },
     },

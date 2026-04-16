@@ -8,7 +8,7 @@ extensions.configure(com.facebook.react.ReactSettingsExtension) { ex ->
 rootProject.name = 'Capture360Example'
 
 include ':app'
-include ':react-native-bisetka-photosphere'
-project(':react-native-bisetka-photosphere').projectDir = new File(rootProject.projectDir, '../../android')
+include ':capture360'
+project(':capture360').projectDir = new File(rootProject.projectDir, '../../android')
 
 includeBuild('../node_modules/@react-native/gradle-plugin')

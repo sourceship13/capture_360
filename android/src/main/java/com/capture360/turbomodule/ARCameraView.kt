@@ -1,4 +1,4 @@
-package com.bisetkaphotosphere.turbomodule
+package com.capture360.turbomodule
 
 import android.Manifest
 import android.content.Context

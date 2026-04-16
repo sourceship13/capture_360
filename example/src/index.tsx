@@ -2,7 +2,7 @@
  * Capture360 Example — Full capture → stitch → view flow.
  *
  * Replicates the App.video.tsx flow from the library root,
- * importing everything from @sourceship/capture360.
+ * importing everything from @sera/capture360.
  */
 
 import React, {useCallback, useEffect, useRef, useState} from 'react';
@@ -26,12 +26,12 @@ import {
   VideoRecorder,
   composeEquirect,
   useVideoCapture,
-} from '@sourceship/capture360';
+} from '@sera/capture360';
 import type {
   ARCameraViewHandle,
   OrientationEvent,
   RecordingCompleteEvent,
-} from '@sourceship/capture360';
+} from '@sera/capture360';
 
 export default function App(): React.JSX.Element {
   const [mode, setMode] = useState<'capture' | 'preview'>('capture');

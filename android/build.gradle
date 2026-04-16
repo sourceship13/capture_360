@@ -20,7 +20,7 @@ def safeExtGet(prop, fallback) {
 }
 
 android {
-    namespace "com.bisetkaphotosphere"
+    namespace "com.capture360"
     compileSdkVersion safeExtGet('compileSdkVersion', 35)
 
     defaultConfig {

@@ -1,4 +1,4 @@
-# @sera/react-native-photosphere
+# @sera/capture360
 
 React Native panorama capture and equirectangular stitching library powered by OpenCV.
 
@@ -25,7 +25,7 @@ Create or update `.npmrc` in your consuming project root:
 ### 2. Install
 
 ```bash
-npm install @sera/react-native-photosphere react-native-webview
+npm install @sera/capture360 react-native-webview
 ```
 
 ### 3. iOS — Build OpenCV framework
@@ -41,9 +41,9 @@ cd ios && pod install
 
 To build it manually ahead of time:
 ```bash
-npx @sera/react-native-photosphere setup:ios
+npx @sera/capture360 setup:ios
 # or directly:
-bash node_modules/@sera/react-native-photosphere/scripts/download-opencv-ios.sh
+bash node_modules/@sera/capture360/scripts/download-opencv-ios.sh
 ```
 
 ### 4. Android
@@ -55,8 +55,8 @@ OpenCV is pulled from Maven automatically — no extra setup needed.
 ### Capture Frames with ARCameraView
 
 ```tsx
-import {ARCameraView} from '@sera/react-native-photosphere';
-import type {ARCameraViewHandle} from '@sera/react-native-photosphere';
+import {ARCameraView} from '@sera/capture360';
+import type {ARCameraViewHandle} from '@sera/capture360';
 
 const cameraRef = useRef<ARCameraViewHandle>(null);
 
@@ -68,8 +68,8 @@ const frame = await cameraRef.current?.captureFrame();
 ### Stitch to Equirectangular
 
 ```tsx
-import {composeEquirect} from '@sera/react-native-photosphere';
-import type {EquirectShot} from '@sera/react-native-photosphere';
+import {composeEquirect} from '@sera/capture360';
+import type {EquirectShot} from '@sera/capture360';
 
 const equirectPath = await composeEquirect(shots);
 ```
@@ -77,7 +77,7 @@ const equirectPath = await composeEquirect(shots);
 ### Display Panorama
 
 ```tsx
-import {PanoramaViewer} from '@sera/react-native-photosphere';
+import {PanoramaViewer} from '@sera/capture360';
 
 <PanoramaViewer uri={equirectPath} />
 ```
@@ -85,7 +85,7 @@ import {PanoramaViewer} from '@sera/react-native-photosphere';
 ### Video Capture + Frame Extraction
 
 ```tsx
-import {VideoRecorder} from '@sera/react-native-photosphere';
+import {VideoRecorder} from '@sera/capture360';
 
 await VideoRecorder.requestCameraPermission();
 const result = await VideoRecorder.extractFrames(videoPath, 2); // 2 fps

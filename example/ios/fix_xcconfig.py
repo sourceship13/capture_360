@@ -68,10 +68,10 @@ content = content.replace(
     '${PODS_ROOT}/Headers/Public/RCTDeprecation/RCTDeprecation.modulemap'
 )
 
-# Fix react-native-bisetka-photosphere modulemap path
+# Fix capture360 modulemap path
 content = content.replace(
-    '${PODS_CONFIGURATION_BUILD_DIR}/react-native-bisetka-photosphere/react_native_bisetka_photosphere.modulemap',
-    '${PODS_ROOT}/Headers/Public/react_native_bisetka_photosphere/react-native-bisetka-photosphere.modulemap'
+    '${PODS_CONFIGURATION_BUILD_DIR}/capture360/capture360.modulemap',
+    '${PODS_ROOT}/Headers/Public/capture360/capture360.modulemap'
 )
 
 # Write the file

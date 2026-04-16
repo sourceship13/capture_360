@@ -1,4 +1,4 @@
-package com.bisetkaphotosphere.turbomodule
+package com.capture360.turbomodule
 
 import android.os.BatteryManager
 import android.os.Build

@@ -1,11 +1,11 @@
 Pod::Spec.new do |s|
-  s.name         = "react-native-photosphere"
+  s.name         = "capture360"
   s.version      = "1.0.0"
   s.summary      = "React Native panorama capture and equirectangular stitching with OpenCV"
-  s.homepage     = "https://github.com/sera-tech/react-native-photosphere"
+  s.homepage     = "https://github.com/sera-tech/capture360"
   s.license      = { :type => "UNLICENSED" }
   s.author       = "Sera Tech"
-  s.source       = { :git => "https://github.com/sera-tech/react-native-photosphere.git", :tag => "v#{s.version}" }
+  s.source       = { :git => "https://github.com/sera-tech/capture360.git", :tag => "v#{s.version}" }
   s.platform     = :ios, "15.0"
 
   # Include all native source files
@@ -24,7 +24,7 @@ Pod::Spec.new do |s|
   s.exclude_files = []
 
   s.resource_bundles = {
-    "react-native-photosphere-privacy" => ["ios/Capture360/PrivacyInfo.xcprivacy"],
+    "capture360-privacy" => ["ios/Capture360/PrivacyInfo.xcprivacy"],
   }
 
   s.public_header_files = [

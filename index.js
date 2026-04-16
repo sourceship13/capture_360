@@ -1,4 +1,4 @@
-// react-native-bisetka-photosphere — public API
+// capture360 — public API
 
 // Native module functions
 export {
