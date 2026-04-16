@@ -5,8 +5,8 @@
  * Reads the panorama via the native readFileBase64 module, then injects
  * it into the WebView as a data URL.
  */
-import React, {useCallback, useRef, useState} from 'react';
-import {View, StyleSheet, ActivityIndicator, Text} from 'react-native';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
+import {View, StyleSheet, ActivityIndicator, Text, Image} from 'react-native';
 import {WebView} from 'react-native-webview';
 import type {WebViewMessageEvent} from 'react-native-webview';
 import {readFileBase64} from '../modules/NativePhotosphere';
@@ -170,7 +170,8 @@ const VIEWER_HTML = `<!DOCTYPE html>
   },{passive:false});
 
   var smoothYaw=0,smoothPitch=0;
-  var smoothing=0.02;  // ultra smooth, minimal jitter
+  var smoothing=0.08;  // responsive but smooth
+  var gyroActive=false;
   
   window._loadBase64=function(b64){loadImg('data:image/jpeg;base64,'+b64);};
   window._loadFile=function(url){loadImg(url);};
@@ -180,11 +181,10 @@ const VIEWER_HTML = `<!DOCTYPE html>
     log('✅ initial view set: yaw='+y+'° pitch='+p+'°');
     if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type:'log',msg:'✅ _setInitialView called: yaw='+y+' pitch='+p}));
   };
-  window._updateAttitude=function(yawRad,pitchRad){
-    // Negate yaw to reverse direction (move left → dot comes closer)
-    var targetYaw = -(yawRad*180/Math.PI);
-    var targetPitch = pitchRad*180/Math.PI;
-    
+  window._updateAttitude=function(yawDeg,pitchDeg){
+    gyroActive=true;
+    var targetYaw = -yawDeg;
+    var targetPitch = -pitchDeg;
     // Low-pass filter to smooth jitter
     smoothYaw += (targetYaw - smoothYaw) * smoothing;
     smoothPitch += (targetPitch - smoothPitch) * smoothing;
@@ -192,6 +192,7 @@ const VIEWER_HTML = `<!DOCTYPE html>
     yaw = smoothYaw;
     pitch = Math.max(-85,Math.min(85,smoothPitch));
   };
+  window._setGyroActive=function(on){ gyroActive=on; };
 
   function handleMsg(e){
     try{
@@ -214,16 +215,20 @@ const VIEWER_HTML = `<!DOCTYPE html>
 
 type Props = {
   /** Absolute file path to an equirectangular JPEG panorama. */
-  imagePath: string;
+  imagePath?: string;
+  /** A require()'d image to use as placeholder when imagePath is not provided */
+  placeholderSource?: number;
   /** Device attitude (yaw/pitch/roll) from motion sensors */
-  _attitude?: Attitude;
+  attitude?: Attitude;
+  /** Enable gyroscope-driven panning (requires attitude to be provided) */
+  gyroEnabled?: boolean;
   /** Initial camera position (yaw/pitch in degrees) — defaults to first shot's orientation */
   initialYaw?: number;
   initialPitch?: number;
 };
 
-export default function SphereViewer({imagePath, _attitude, initialYaw = 0, initialPitch = 0}: Props) {
-  console.log('[SphereViewer] Mounting with initial:', {initialYaw, initialPitch});
+export default function SphereViewer({imagePath, placeholderSource, attitude, gyroEnabled = false, initialYaw = 0, initialPitch = 0}: Props) {
+  console.log('[SphereViewer] Mounting with initial:', {initialYaw, initialPitch, gyroEnabled});
   const webRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -233,31 +238,52 @@ export default function SphereViewer({imagePath, _attitude, initialYaw = 0, init
     if (sentRef.current) return;
     sentRef.current = true;
 
-    try {
-      console.log('[SphereViewer] reading image:', imagePath);
-      const base64 = await readFileBase64(imagePath);
-      console.log('[SphereViewer] base64 length:', base64.length);
-
-      // Set initial camera position BEFORE loading image to avoid flash
-      console.log('[SphereViewer] Setting initial view:', {initialYaw, initialPitch});
-      webRef.current?.injectJavaScript(`
-        try {
-          if (window._setInitialView) {
-            window._setInitialView(${initialYaw}, ${initialPitch});
-          }
-          window._loadBase64(${JSON.stringify(base64)});
-        } catch(e) {
-          if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type:'log',msg:'inject err: '+e.message}));
+    // Set initial camera position BEFORE loading image
+    webRef.current?.injectJavaScript(`
+      try {
+        if (window._setInitialView) {
+          window._setInitialView(${initialYaw}, ${initialPitch});
         }
-        true;
-      `);
+      } catch(e) {}
+      true;
+    `);
+
+    try {
+      if (imagePath) {
+        // Load from file system
+        console.log('[SphereViewer] reading image:', imagePath);
+        const base64 = await readFileBase64(imagePath);
+        console.log('[SphereViewer] base64 length:', base64.length);
+        webRef.current?.injectJavaScript(`
+          try { window._loadBase64(${JSON.stringify(base64)}); } catch(e) {}
+          true;
+        `);
+      } else if (placeholderSource) {
+        // Load from RN bundled asset via fetch → blob → dataURL
+        const resolved = Image.resolveAssetSource(placeholderSource);
+        console.log('[SphereViewer] loading placeholder:', resolved?.uri?.substring(0, 80));
+        const response = await fetch(resolved.uri);
+        const blob = await response.blob();
+        const dataUrl: string = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        webRef.current?.injectJavaScript(`
+          try { window._loadFile(${JSON.stringify(dataUrl)}); } catch(e) {}
+          true;
+        `);
+      } else {
+        setError('No image source provided');
+      }
       setLoading(false);
     } catch (e: any) {
       console.log('[SphereViewer] error:', e.message);
       setError(e.message ?? 'Failed to read image');
       setLoading(false);
     }
-  }, [imagePath, initialPitch, initialYaw]);
+  }, [imagePath, placeholderSource, initialPitch, initialYaw]);
 
   const onMessage = useCallback((event: WebViewMessageEvent) => {
     try {
@@ -268,23 +294,17 @@ export default function SphereViewer({imagePath, _attitude, initialYaw = 0, init
     } catch {}
   }, []);
 
-  // DISABLED: Device motion tracking during viewing causes unwanted drift
-  // The viewer should use manual touch controls only, not live sensor updates
-  // useEffect(() => {
-  //   if (!attitude || !webRef.current) return;
-  //   
-  //   console.log(`[DEVICE] yaw=${attitude.yaw.toFixed(1)} pitch=${attitude.pitch.toFixed(1)} roll=${attitude.roll.toFixed(1)}`);
-  //   
-  //   const yawRad = (attitude.pitch * Math.PI) / 180;
-  //   const pitchRad = (attitude.yaw * Math.PI) / 180;
-  //   
-  //   webRef.current.injectJavaScript(`
-  //     if (window._updateAttitude) {
-  //       window._updateAttitude(${yawRad}, ${pitchRad});
-  //     }
-  //     true;
-  //   `);
-  // }, [attitude]);
+  // Device motion tracking — when gyroEnabled, pipe attitude data to the WebView
+  useEffect(() => {
+    if (!gyroEnabled || !attitude || !webRef.current) return;
+    
+    webRef.current.injectJavaScript(`
+      if (window._updateAttitude) {
+        window._updateAttitude(${attitude.yaw}, ${attitude.pitch});
+      }
+      true;
+    `);
+  }, [gyroEnabled, attitude]);
 
   return (
     <View style={styles.root}>
