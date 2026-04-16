@@ -1,5 +1,6 @@
 package com.bisetkaphotosphere.turbomodule
 
+import android.util.Log
 import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.common.MapBuilder
 import com.facebook.react.uimanager.SimpleViewManager
@@ -25,6 +26,7 @@ class ARCameraViewManager : SimpleViewManager<ARCameraView>() {
     override fun getName(): String = REACT_CLASS
 
     override fun createViewInstance(context: ThemedReactContext): ARCameraView {
+        Log.e("ARCViewMgr", "createViewInstance called")
         return ARCameraView(context)
     }
 

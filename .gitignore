@@ -28,8 +28,9 @@ ios/.xcode.env.local
 /vendor/bundle/
 vendor/
 
-# OpenCV — downloaded at install time via scripts/download-opencv-ios.sh
+# OpenCV — built from source at install time via scripts/download-opencv-ios.sh
 ios/opencv2.framework/
+ios/opencv2.xcframework/
 
 # Legacy standalone app artifacts (ios/ is now library-only)
 ios/BisetkaPhotosphere.xcodeproj/

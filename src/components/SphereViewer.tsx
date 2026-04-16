@@ -178,7 +178,7 @@ const VIEWER_HTML = `<!DOCTYPE html>
     // Store in degrees (shader converts to radians)
     yaw=y;pitch=p;smoothYaw=y;smoothPitch=p;
     log('✅ initial view set: yaw='+y+'° pitch='+p+'°');
-    window.ReactNativeWebView.postMessage(JSON.stringify({type:'log',msg:'✅ _setInitialView called: yaw='+y+' pitch='+p}));
+    if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type:'log',msg:'✅ _setInitialView called: yaw='+y+' pitch='+p}));
   };
   window._updateAttitude=function(yawRad,pitchRad){
     // Negate yaw to reverse direction (move left → dot comes closer)
@@ -247,7 +247,7 @@ export default function SphereViewer({imagePath, _attitude, initialYaw = 0, init
           }
           window._loadBase64(${JSON.stringify(base64)});
         } catch(e) {
-          window.ReactNativeWebView.postMessage(JSON.stringify({type:'log',msg:'inject err: '+e.message}));
+          if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type:'log',msg:'inject err: '+e.message}));
         }
         true;
       `);

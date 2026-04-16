@@ -36,8 +36,9 @@ Pod::Spec.new do |s|
     "ios/Capture360/RCTModuleProvider.h",
   ]
 
-  # OpenCV framework — downloaded via prepare_command, not checked into git
-  s.vendored_frameworks = "ios/opencv2.framework"
+  # OpenCV xcframework — built from source via prepare_command, not checked into git.
+  # The xcframework contains both device (arm64) and simulator (arm64, x86_64) slices.
+  s.vendored_frameworks = "ios/opencv2.xcframework"
   s.prepare_command = "bash scripts/download-opencv-ios.sh"
 
   s.frameworks = "ARKit", "SceneKit", "CoreMotion", "AVFoundation", "UIKit"

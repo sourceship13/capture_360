@@ -51,6 +51,9 @@ class ARCameraView(context: Context) : FrameLayout(context), SensorEventListener
 
     companion object {
         private const val TAG = "ARCameraView"
+        // Static registry for Fabric-compatible view lookup from ARCameraViewModule
+        private val instances = mutableMapOf<Int, ARCameraView>()
+        fun getByTag(tag: Int): ARCameraView? = instances[tag]
     }
 
     // ── Camera ───────────────────────────────────────────────────────────
@@ -124,11 +127,15 @@ class ARCameraView(context: Context) : FrameLayout(context), SensorEventListener
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        instances[id] = this
+        Log.i(TAG, "onAttachedToWindow: registered view id=$id")
         startSensors()
         startCamera()
     }
 
     override fun onDetachedFromWindow() {
+        instances.remove(id)
+        Log.i(TAG, "onDetachedFromWindow: unregistered view id=$id")
         stopCamera()
         stopSensors()
         cameraExecutor.shutdown()

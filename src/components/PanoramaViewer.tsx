@@ -205,7 +205,7 @@ export default function PanoramaViewer({imagePath}: Props) {
       const base64 = await readFileBase64(imagePath);
       webRef.current?.injectJavaScript(`
         try { window._loadBase64(${JSON.stringify(base64)}); }
-        catch(e) { window.ReactNativeWebView.postMessage(JSON.stringify({type:'log',msg:'err: '+e.message})); }
+        catch(e) { if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({type:'log',msg:'err: '+e.message})); }
         true;
       `);
     } catch (e: any) {

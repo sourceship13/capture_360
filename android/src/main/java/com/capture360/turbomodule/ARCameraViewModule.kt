@@ -5,7 +5,6 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.module.annotations.ReactModule
-import com.facebook.react.uimanager.UIManagerModule
 
 /**
  * Native module companion for ARCameraViewManager.
@@ -14,6 +13,9 @@ import com.facebook.react.uimanager.UIManagerModule
  * JS calls `NativeModules.ARCameraView.captureFrame(tag)`.
  * On Android, ViewManagers are not NativeModules, so this separate
  * module bridges the gap.
+ *
+ * Uses ARCameraViewManager's static view registry to resolve views,
+ * which works in both Bridge and Fabric/bridgeless modes.
  */
 @ReactModule(name = ARCameraViewModule.NAME)
 class ARCameraViewModule(reactContext: ReactApplicationContext) :
@@ -29,22 +31,11 @@ class ARCameraViewModule(reactContext: ReactApplicationContext) :
     @ReactMethod
     fun captureFrame(tag: Double) {
         val tagInt = tag.toInt()
-        val uiManager = reactApplicationContext.getNativeModule(UIManagerModule::class.java)
-        if (uiManager == null) {
-            Log.w(TAG, "captureFrame: UIManagerModule not available")
-            return
-        }
-        uiManager.addUIBlock { nativeViewHierarchyManager ->
-            try {
-                val view = nativeViewHierarchyManager.resolveView(tagInt)
-                if (view is ARCameraView) {
-                    view.captureFrame()
-                } else {
-                    Log.w(TAG, "captureFrame: view $tagInt is not ARCameraView (${view?.javaClass?.simpleName})")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "captureFrame: could not resolve view $tagInt", e)
-            }
+        val view = ARCameraView.getByTag(tagInt)
+        if (view != null) {
+            view.captureFrame()
+        } else {
+            Log.w(TAG, "captureFrame: no ARCameraView found for tag $tagInt (registered: ${ARCameraView.getByTag(tagInt) != null})")
         }
     }
 
