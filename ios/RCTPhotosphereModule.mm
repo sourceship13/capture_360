@@ -461,4 +461,127 @@ RCT_EXPORT_METHOD(readFileBase64:(NSString *)filePath
     }
 }
 
+// ---------------------------------------------------------------------------
+// exportCaptureZip — bundles the stitched panorama + all individual frames
+// into a .zip file and saves it to the Documents directory (accessible via
+// the iOS Files app). Returns the path to the created zip.
+//
+// Parameters:
+//   stitchedPath  — file path to the stitched equirect JPEG
+//   framePaths    — array of file paths to individual captured frames
+//   filename      — optional base name for the zip (default: capture_<ts>)
+// ---------------------------------------------------------------------------
+RCT_EXPORT_METHOD(exportCaptureZip:(NSString *)stitchedPath
+                  framePaths:(NSArray<NSString *> *)framePaths
+                  filename:(NSString *)filename
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject)
+{
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSFileManager *fm = [NSFileManager defaultManager];
+
+        // 1. Create a staging directory with the files to zip
+        NSString *baseName = (filename.length > 0)
+            ? filename
+            : [NSString stringWithFormat:@"capture_%ld",
+               (long)[[NSDate date] timeIntervalSince1970]];
+
+        NSString *stageDir =
+            [NSTemporaryDirectory() stringByAppendingPathComponent:baseName];
+
+        // Clean up any previous staging dir
+        [fm removeItemAtPath:stageDir error:nil];
+
+        NSError *err = nil;
+        if (![fm createDirectoryAtPath:stageDir
+           withIntermediateDirectories:YES
+                            attributes:nil
+                                 error:&err]) {
+            reject(@"ZIP_ERROR",
+                   [NSString stringWithFormat:@"Failed to create staging dir: %@",
+                    err.localizedDescription], err);
+            return;
+        }
+
+        // 2. Copy stitched panorama into staging dir
+        NSString *stitchedPosix = [stitchedPath hasPrefix:@"file://"]
+            ? [[NSURL URLWithString:stitchedPath] path]
+            : stitchedPath;
+
+        if ([fm fileExistsAtPath:stitchedPosix]) {
+            NSString *dest = [stageDir stringByAppendingPathComponent:@"panorama.jpg"];
+            if (![fm copyItemAtPath:stitchedPosix toPath:dest error:&err]) {
+                NSLog(@"[Zip] Warning: couldn't copy stitched image: %@", err);
+            }
+        }
+
+        // 3. Copy individual frames into a "frames" subfolder
+        NSString *framesDir = [stageDir stringByAppendingPathComponent:@"frames"];
+        [fm createDirectoryAtPath:framesDir
+      withIntermediateDirectories:YES
+                       attributes:nil
+                            error:nil];
+
+        for (NSUInteger i = 0; i < framePaths.count; i++) {
+            NSString *srcPath = framePaths[i];
+            NSString *posix = [srcPath hasPrefix:@"file://"]
+                ? [[NSURL URLWithString:srcPath] path]
+                : srcPath;
+
+            if (![fm fileExistsAtPath:posix]) continue;
+
+            NSString *ext = [posix pathExtension] ?: @"jpg";
+            NSString *frameName =
+                [NSString stringWithFormat:@"frame_%03lu.%@",
+                 (unsigned long)i, ext];
+            NSString *dest = [framesDir stringByAppendingPathComponent:frameName];
+            [fm copyItemAtPath:posix toPath:dest error:nil];
+        }
+
+        // 4. Create zip using NSFileCoordinator
+        //    NSFileCoordinatorReadingForUploading produces a zip from a directory.
+        NSURL *stageDirURL = [NSURL fileURLWithPath:stageDir isDirectory:YES];
+        NSString *zipName  = [baseName stringByAppendingPathExtension:@"zip"];
+
+        // Save to app's Documents directory (visible in Files app)
+        NSArray *docPaths = NSSearchPathForDirectoriesInDomains(
+            NSDocumentDirectory, NSUserDomainMask, YES);
+        NSString *docsDir = docPaths.firstObject;
+        NSString *zipPath = [docsDir stringByAppendingPathComponent:zipName];
+
+        // Remove old zip if it exists
+        [fm removeItemAtPath:zipPath error:nil];
+
+        __block NSError *coordErr = nil;
+        __block BOOL success = NO;
+
+        NSFileCoordinator *coord = [[NSFileCoordinator alloc] init];
+        [coord coordinateReadingItemAtURL:stageDirURL
+                                  options:NSFileCoordinatorReadingForUploading
+                                    error:&coordErr
+                               byAccessor:^(NSURL *zipURL) {
+            // NSFileCoordinator creates a temp zip; move it to our destination
+            NSError *moveErr = nil;
+            success = [fm moveItemAtURL:zipURL
+                                  toURL:[NSURL fileURLWithPath:zipPath]
+                                  error:&moveErr];
+            if (!success) {
+                coordErr = moveErr;
+            }
+        }];
+
+        // 5. Clean up staging directory
+        [fm removeItemAtPath:stageDir error:nil];
+
+        if (success) {
+            NSLog(@"[Zip] Exported → %@", zipPath);
+            resolve(zipPath);
+        } else {
+            reject(@"ZIP_ERROR",
+                   coordErr.localizedDescription ?: @"Zip creation failed.",
+                   coordErr);
+        }
+    });
+}
+
 @end

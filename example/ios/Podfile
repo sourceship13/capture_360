@@ -1,9 +1,6 @@
 # Disable new architecture to use legacy bridge
 ENV['RCT_NEW_ARCH_ENABLED'] = '0'
 
-# Use static frameworks (required for React Native bridging headers)
-use_frameworks! :linkage => :static
-
 # Create workspace file
 workspace 'Capture360Example'
 
@@ -109,6 +106,51 @@ target 'Capture360Example' do
       end
     end
 
+    # Fix RCTDeprecation header not found with use_frameworks :static
+    # React-Core references RCTDeprecation.framework/Headers which doesn't exist
+    # with static linkage. Fix by:
+    # 1. Symlinking headers to Public headers dir
+    # 2. Patching ALL xcconfigs to use the real header path
+    # 3. Adding missing library search path for RCTDeprecation
+    rct_dep_src = File.realpath(File.join(config[:reactNativePath], 'ReactApple', 'Libraries', 'RCTFoundation', 'RCTDeprecation', 'Exported'))
+    rct_dep_link = File.join(installer.sandbox.root, 'Headers', 'Public', 'RCTDeprecation')
+    FileUtils.rm_f(rct_dep_link)
+    if File.directory?(rct_dep_src)
+      FileUtils.ln_s(rct_dep_src, rct_dep_link)
+      puts "[header fix] Symlinked RCTDeprecation headers → #{rct_dep_src}"
+
+      # Also patch ALL xcconfigs to replace the framework path with real header dir
+      rct_dep_parent = File.dirname(rct_dep_src)
+      Dir.glob(File.join(installer.sandbox.root, 'Target Support Files', '**', '*.xcconfig')).each do |xcconfig|
+        content = File.read(xcconfig)
+        changed = false
+
+        # Fix header search paths
+        if content.include?('RCTDeprecation/RCTDeprecation.framework/Headers')
+          content.gsub!(
+            '"${PODS_CONFIGURATION_BUILD_DIR}/RCTDeprecation/RCTDeprecation.framework/Headers"',
+            "\"#{rct_dep_parent}/Exported\""
+          )
+          changed = true
+        end
+
+        # Fix missing library search path — add RCTDeprecation build dir
+        if content.include?('-l"RCTDeprecation"') &&
+           !content.match?(/LIBRARY_SEARCH_PATHS.*RCTDeprecation/)
+          content.gsub!(
+            'LIBRARY_SEARCH_PATHS = $(inherited)',
+            'LIBRARY_SEARCH_PATHS = $(inherited) "${PODS_CONFIGURATION_BUILD_DIR}/RCTDeprecation"'
+          )
+          changed = true
+        end
+
+        if changed
+          File.write(xcconfig, content)
+          puts "[header fix] Patched #{File.basename(File.dirname(xcconfig))}/#{File.basename(xcconfig)}"
+        end
+      end
+    end
+
     # Call Python script to fix any remaining issues
     system("python3", "fix_xcconfig.py", "Pods/Target Support Files/Pods-Capture360Example/Pods-Capture360Example.debug.xcconfig")
     system("python3", "fix_xcconfig.py", "Pods/Target Support Files/Pods-Capture360Example/Pods-Capture360Example.release.xcconfig")
@@ -121,6 +163,34 @@ target 'Capture360Example' do
     end
     unless release_xcconfig.include?("SWIFT_PRECOMPILE_BRIDGING_HEADER")
         File.write("Pods/Target Support Files/Pods-Capture360Example/Pods-Capture360Example.release.xcconfig", release_xcconfig + "\nSWIFT_PRECOMPILE_BRIDGING_HEADER = NO\n")
+    end
+
+    # Final pass: ensure all linked pods have LIBRARY_SEARCH_PATHS entries
+    # (must run AFTER fix_xcconfig.py which may clobber earlier patches)
+    Dir.glob(File.join(installer.sandbox.root, 'Target Support Files', '**', '*.xcconfig')).each do |xcconfig|
+      content = File.read(xcconfig)
+      changed = false
+
+      # Find all -l"PodName" references
+      content.scan(/-l"([^"]+)"/).flatten.uniq.each do |pod_name|
+        unless content.match?(/LIBRARY_SEARCH_PATHS.*PODS_CONFIGURATION_BUILD_DIR.*#{Regexp.escape(pod_name)}/)
+          content.gsub!(
+            'LIBRARY_SEARCH_PATHS = $(inherited)',
+            "LIBRARY_SEARCH_PATHS = $(inherited) \"${PODS_CONFIGURATION_BUILD_DIR}/#{pod_name}\""
+          ) unless changed  # only match once per file
+          # For subsequent pods, append to existing line
+          if changed
+            content.sub!(
+              /^(LIBRARY_SEARCH_PATHS = .*)$/,
+              "\\1 \"${PODS_CONFIGURATION_BUILD_DIR}/#{pod_name}\""
+            )
+          end
+          changed = true
+          puts "[final fix] Added #{pod_name} to LIBRARY_SEARCH_PATHS in #{File.basename(xcconfig)}"
+        end
+      end
+
+      File.write(xcconfig, content) if changed
     end
   end
 end

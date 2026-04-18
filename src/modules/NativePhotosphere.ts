@@ -41,3 +41,24 @@ export function stitchHorizontal(imagePaths: string[]): Promise<string> {
 export function readFileBase64(filePath: string): Promise<string> {
   return NativePhotosphere.readFileBase64(filePath);
 }
+
+/**
+ * exportCaptureZip — bundles the stitched panorama and all individual frames
+ * into a .zip file saved to the app's Documents directory (visible in Files app).
+ *
+ * @param stitchedPath  Path to the stitched equirectangular JPEG
+ * @param framePaths    Array of paths to individual captured frame JPEGs
+ * @param filename      Optional base name for the zip (default: capture_<timestamp>)
+ * @returns Promise resolving to the path of the created .zip file
+ */
+export function exportCaptureZip(
+  stitchedPath: string,
+  framePaths: string[],
+  filename?: string,
+): Promise<string> {
+  return NativePhotosphere.exportCaptureZip(
+    stitchedPath,
+    framePaths,
+    filename ?? '',
+  );
+}

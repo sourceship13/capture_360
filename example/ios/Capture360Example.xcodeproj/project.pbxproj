@@ -8,7 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
-		53852DF775975EBB8780C05E /* Pods_Capture360Example.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B0AA04CEA72FBF80D0F95F62 /* Pods_Capture360Example.framework */; };
+		3B3C55F551344727BA5D7040 /* libPods-Capture360Example.a in Frameworks */ = {isa = PBXBuildFile; fileRef = F1EB2F5BE8981802796136A2 /* libPods-Capture360Example.a */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		DEBB2BD72F7B436F0062B357 /* opencv2.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DEBB2BD52F7B43410062B357 /* opencv2.framework */; };
@@ -38,10 +38,10 @@
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = Capture360Example/AppDelegate.swift; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = Capture360Example/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		94B922C0E0BF502668B6DB8B /* Pods-Capture360Example.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Capture360Example.debug.xcconfig"; path = "Target Support Files/Pods-Capture360Example/Pods-Capture360Example.debug.xcconfig"; sourceTree = "<group>"; };
-		B0AA04CEA72FBF80D0F95F62 /* Pods_Capture360Example.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Capture360Example.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		D9527A4AD0A2E5B84DD2E3E7 /* Pods-Capture360Example.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Capture360Example.release.xcconfig"; path = "Target Support Files/Pods-Capture360Example/Pods-Capture360Example.release.xcconfig"; sourceTree = "<group>"; };
 		DEBB2BD52F7B43410062B357 /* opencv2.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = opencv2.framework; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
+		F1EB2F5BE8981802796136A2 /* libPods-Capture360Example.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-Capture360Example.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -50,7 +50,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				DEBB2BD72F7B436F0062B357 /* opencv2.framework in Frameworks */,
-				53852DF775975EBB8780C05E /* Pods_Capture360Example.framework in Frameworks */,
+				3B3C55F551344727BA5D7040 /* libPods-Capture360Example.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -73,7 +73,7 @@
 			isa = PBXGroup;
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-				B0AA04CEA72FBF80D0F95F62 /* Pods_Capture360Example.framework */,
+				F1EB2F5BE8981802796136A2 /* libPods-Capture360Example.a */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -323,6 +323,7 @@
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)",
+					"$(PROJECT_DIR)/../../ios/opencv2.xcframework/ios-arm64",
 				);
 				INFOPLIST_FILE = Capture360Example/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Photosphere;
@@ -364,6 +365,7 @@
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)",
+					"$(PROJECT_DIR)/../../ios/opencv2.xcframework/ios-arm64",
 				);
 				INFOPLIST_FILE = Capture360Example/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Photosphere;
@@ -474,7 +476,7 @@
 					"-DFOLLY_CFG_NO_COROUTINES=1",
 					"-DFOLLY_HAVE_CLOCK_GETTIME=1",
 				);
-				REACT_NATIVE_PATH = "${PODS_ROOT}/../../node_modules/react-native";
+				REACT_NATIVE_PATH = "${PODS_ROOT}/../../../node_modules/react-native";
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
 				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
@@ -557,7 +559,7 @@
 					"-DFOLLY_CFG_NO_COROUTINES=1",
 					"-DFOLLY_HAVE_CLOCK_GETTIME=1",
 				);
-				REACT_NATIVE_PATH = "${PODS_ROOT}/../../node_modules/react-native";
+				REACT_NATIVE_PATH = "${PODS_ROOT}/../../../node_modules/react-native";
 				SDKROOT = iphoneos;
 				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				USE_HERMES = true;

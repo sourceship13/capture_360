@@ -6,6 +6,7 @@ export {
   stitchHorizontal,
   stitchImages,
   readFileBase64,
+  exportCaptureZip,
 } from './modules/NativePhotosphere';
 export type {EquirectShot} from './modules/NativePhotosphere';
 
