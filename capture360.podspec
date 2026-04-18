@@ -1,11 +1,11 @@
 Pod::Spec.new do |s|
   s.name         = "capture360"
-  s.version      = "1.0.0"
+  s.version      = "1.0.5"
   s.summary      = "React Native panorama capture and equirectangular stitching with OpenCV"
-  s.homepage     = "https://github.com/sera-tech/capture360"
+  s.homepage     = "https://github.com/sourceship13/capture360"
   s.license      = { :type => "UNLICENSED" }
   s.author       = "Sera Tech"
-  s.source       = { :git => "https://github.com/sera-tech/capture360.git", :tag => "v#{s.version}" }
+  s.source       = { :git => "https://github.com/sourceship13/capture360.git", :tag => "v#{s.version}" }
   s.platform     = :ios, "15.0"
 
   # Include all native source files
@@ -36,8 +36,9 @@ Pod::Spec.new do |s|
     "ios/Capture360/RCTModuleProvider.h",
   ]
 
-  # OpenCV xcframework — built from source via prepare_command, not checked into git.
+  # OpenCV xcframework — downloaded as a pre-built binary via prepare_command, not checked into git.
   # The xcframework contains both device (arm64) and simulator (arm64, x86_64) slices.
+  # Source: https://github.com/sourceship13/capture360/releases/tag/opencv-4.10.0-ios
   s.vendored_frameworks = "ios/opencv2.xcframework"
   s.prepare_command = "bash scripts/download-opencv-ios.sh"
 

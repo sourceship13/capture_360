@@ -25,6 +25,8 @@ import {
   SphereViewer,
   VideoRecorder,
   composeEquirect,
+  exportCaptureZip,
+  shareFile,
   useVideoCapture,
 } from '@sera/capture360';
 import type {
@@ -47,6 +49,7 @@ export default function App(): React.JSX.Element {
 
   const cameraRef = useRef<ARCameraViewHandle>(null);
   const videoCapture = useVideoCapture();
+  const framePathsRef = useRef<string[]>([]);
 
   // Latest ARKit orientation — used by SphericalGuide
   const yawOffsetRef = useRef<number | null>(null);
@@ -122,6 +125,7 @@ export default function App(): React.JSX.Element {
       const {frameCount, frames, sessionDir} = event.nativeEvent;
 
       console.log(`[App] Recording complete: ${frameCount} frames in ${sessionDir}`);
+      framePathsRef.current = frames.map((f: any) => f.path);
 
       Alert.alert(
         'Recording Complete',
@@ -228,8 +232,22 @@ export default function App(): React.JSX.Element {
 
           <TouchableOpacity
             style={styles.buttonPrimary}
-            onPress={() => console.log('[App] Save to library - TODO')}>
-            <Text style={styles.buttonText}>Save</Text>
+            onPress={async () => {
+              try {
+                const zipPath = await exportCaptureZip(
+                  equirectPath!,
+                  framePathsRef.current,
+                  `capture_${Date.now()}`,
+                );
+                console.log('[App] Zip created:', zipPath);
+                const shared = await shareFile(zipPath);
+                console.log('[App] Share result:', shared);
+              } catch (err) {
+                console.error('[App] Share error:', err);
+                Alert.alert('Error', String(err));
+              }
+            }}>
+            <Text style={styles.buttonText}>Share</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>

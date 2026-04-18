@@ -10,6 +10,7 @@
 #import <UIKit/UIKit.h>
 #import "OpenCVWrapper.h"
 #import <React/RCTEventEmitter.h>
+#import <React/RCTUtils.h>
 
 // ---------------------------------------------------------------------------
 // NormaliseOrientation
@@ -581,6 +582,67 @@ RCT_EXPORT_METHOD(exportCaptureZip:(NSString *)stitchedPath
                    coordErr.localizedDescription ?: @"Zip creation failed.",
                    coordErr);
         }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// shareFile — presents the native iOS share sheet (UIActivityViewController)
+// for a given file path. Useful for sharing .zip exports via AirDrop, Mail,
+// Messages, Files, etc.
+// ---------------------------------------------------------------------------
+RCT_EXPORT_METHOD(shareFile:(NSString *)filePath
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject)
+{
+    NSString *posixPath = [filePath hasPrefix:@"file://"]
+        ? [[NSURL URLWithString:filePath] path]
+        : filePath;
+
+    if (![[NSFileManager defaultManager] fileExistsAtPath:posixPath]) {
+        reject(@"SHARE_ERROR",
+               [NSString stringWithFormat:@"File not found: %@", posixPath],
+               nil);
+        return;
+    }
+
+    NSURL *fileURL = [NSURL fileURLWithPath:posixPath];
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIActivityViewController *activityVC =
+            [[UIActivityViewController alloc]
+             initWithActivityItems:@[fileURL]
+             applicationActivities:nil];
+
+        UIViewController *rootVC =
+            RCTKeyWindow().rootViewController;
+
+        // Find the topmost presented controller
+        UIViewController *topVC = rootVC;
+        while (topVC.presentedViewController) {
+            topVC = topVC.presentedViewController;
+        }
+
+        // iPad popover support
+        if ([activityVC respondsToSelector:@selector(popoverPresentationController)]) {
+            activityVC.popoverPresentationController.sourceView = topVC.view;
+            activityVC.popoverPresentationController.sourceRect =
+                CGRectMake(CGRectGetMidX(topVC.view.bounds),
+                           CGRectGetMidY(topVC.view.bounds),
+                           0, 0);
+            activityVC.popoverPresentationController.permittedArrowDirections = 0;
+        }
+
+        activityVC.completionWithItemsHandler =
+            ^(UIActivityType activityType, BOOL completed,
+              NSArray *returnedItems, NSError *error) {
+                if (error) {
+                    reject(@"SHARE_ERROR", error.localizedDescription, error);
+                } else {
+                    resolve(@(completed));
+                }
+            };
+
+        [topVC presentViewController:activityVC animated:YES completion:nil];
     });
 }
 

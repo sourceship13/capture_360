@@ -39,7 +39,7 @@
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = Capture360Example/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		94B922C0E0BF502668B6DB8B /* Pods-Capture360Example.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Capture360Example.debug.xcconfig"; path = "Target Support Files/Pods-Capture360Example/Pods-Capture360Example.debug.xcconfig"; sourceTree = "<group>"; };
 		D9527A4AD0A2E5B84DD2E3E7 /* Pods-Capture360Example.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Capture360Example.release.xcconfig"; path = "Target Support Files/Pods-Capture360Example/Pods-Capture360Example.release.xcconfig"; sourceTree = "<group>"; };
-		DEBB2BD52F7B43410062B357 /* opencv2.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = opencv2.framework; sourceTree = "<group>"; };
+		DEBB2BD52F7B43410062B357 /* opencv2.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = opencv2.framework; path = "../../ios/opencv2.xcframework/ios-arm64/opencv2.framework"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F1EB2F5BE8981802796136A2 /* libPods-Capture360Example.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-Capture360Example.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -235,9 +235,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-Capture360Example/Pods-Capture360Example-resources-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Copy Pods Resources";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-Capture360Example/Pods-Capture360Example-resources-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -252,9 +256,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-Capture360Example/Pods-Capture360Example-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-Capture360Example/Pods-Capture360Example-frameworks-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -295,7 +303,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "#!/bin/bash\nset -e\n\nOPENCV_FRAMEWORK=\"${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/opencv2.framework\"\nif [ ! -d \"$OPENCV_FRAMEWORK\" ]; then\n  OPENCV_FRAMEWORK=\"${CODESIGNING_FOLDER_PATH}/Frameworks/opencv2.framework\"\nfi\nif [ ! -d \"$OPENCV_FRAMEWORK\" ]; then\n  echo \"opencv2.framework not found, skipping\"\n  exit 0\nfi\n\necho \"Found opencv2 at: $OPENCV_FRAMEWORK\"\n\n# Flatten Versions/ structure\nif [ -d \"${OPENCV_FRAMEWORK}/Versions\" ]; then\n  echo \"Flattening Versions/ structure...\"\n  \n  VERSIONS_A=\"${OPENCV_FRAMEWORK}/Versions/A\"\n  REAL_BINARY=\"${VERSIONS_A}/opencv2\"\n  DEST_BINARY=\"${OPENCV_FRAMEWORK}/opencv2_real\"\n  \n  if [ ! -f \"$REAL_BINARY\" ]; then\n    echo \"ERROR: No binary found in Versions/A!\"\n    ls -la \"${VERSIONS_A}/\"\n    exit 1\n  fi\n  \n  # Copy the real binary to a temp name (avoids identical file error)\n  cp -f \"$REAL_BINARY\" \"$DEST_BINARY\"\n  chmod +x \"$DEST_BINARY\"\n  \n  # Remove the symlink at root\n  rm -f \"${OPENCV_FRAMEWORK}/opencv2\"\n  \n  # Remove Versions directory\n  rm -rf \"${OPENCV_FRAMEWORK}/Versions\"\n  \n  # Remove any remaining symlinks\n  find \"${OPENCV_FRAMEWORK}\" -maxdepth 1 -type l -delete\n  \n  # Move real binary into place\n  mv \"$DEST_BINARY\" \"${OPENCV_FRAMEWORK}/opencv2\"\nfi\n\n# Clean unsealed contents\nrm -rf \"${OPENCV_FRAMEWORK}/Headers\"\nrm -rf \"${OPENCV_FRAMEWORK}/PrivateHeaders\"\nrm -rf \"${OPENCV_FRAMEWORK}/Modules\"\nrm -f \"${OPENCV_FRAMEWORK}/opencv2.podspec\"\nrm -f \"${OPENCV_FRAMEWORK}/LICENSE\"\nrm -f \"${OPENCV_FRAMEWORK}/README.md\"\nfind \"${OPENCV_FRAMEWORK}\" -maxdepth 1 -name \"*.h\" -delete\n\n# Fix minimum OS version in opencv2 Info.plist\nOPENCV_PLIST=\"${OPENCV_FRAMEWORK}/Info.plist\"\nif [ -f \"$OPENCV_PLIST\" ]; then\n  CURRENT_MIN=$(/usr/libexec/PlistBuddy -c \"Print :MinimumOSVersion\" \"$OPENCV_PLIST\" 2>/dev/null || echo \"none\")\n  echo \"opencv2 MinimumOSVersion: $CURRENT_MIN\"\n  /usr/libexec/PlistBuddy -c \"Set :MinimumOSVersion 15.1\" \"$OPENCV_PLIST\" 2>/dev/null || \\\n  /usr/libexec/PlistBuddy -c \"Add :MinimumOSVersion string 15.1\" \"$OPENCV_PLIST\"\n  echo \"Set MinimumOSVersion to 15.1\"\nfi\n\necho \"Contents after flattening:\"\nls -la \"$OPENCV_FRAMEWORK\"\n\n# Verify binary exists\nif [ ! -f \"${OPENCV_FRAMEWORK}/opencv2\" ]; then\n  echo \"ERROR: opencv2 binary missing!\"\n  exit 1\nfi\n\n# Strip simulator slices\nif lipo -info \"${OPENCV_FRAMEWORK}/opencv2\" 2>/dev/null | grep -q \"x86_64\"; then\n  echo \"Stripping x86_64...\"\n  lipo -remove x86_64 \"${OPENCV_FRAMEWORK}/opencv2\" -output \"${OPENCV_FRAMEWORK}/opencv2\" || true\nfi\n\n# Re-sign\ncodesign --force --sign \"F7542C038CA67BFC425366A2C0EE221AA216F621\" \\\n  --timestamp=none \\\n  \"${OPENCV_FRAMEWORK}\"\n\necho \"opencv2.framework done\"\n";
+			shellScript = "#!/bin/bash\nset -e\n\nOPENCV_FRAMEWORK=\"${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/opencv2.framework\"\nif [ ! -d \"$OPENCV_FRAMEWORK\" ]; then\n  OPENCV_FRAMEWORK=\"${CODESIGNING_FOLDER_PATH}/Frameworks/opencv2.framework\"\nfi\nif [ ! -d \"$OPENCV_FRAMEWORK\" ]; then\n  echo \"opencv2.framework not found, skipping\"\n  exit 0\nfi\n\necho \"Found opencv2 at: $OPENCV_FRAMEWORK\"\n\n# Flatten Versions/ structure\nif [ -d \"${OPENCV_FRAMEWORK}/Versions\" ]; then\n  echo \"Flattening Versions/ structure...\"\n  \n  VERSIONS_A=\"${OPENCV_FRAMEWORK}/Versions/A\"\n  REAL_BINARY=\"${VERSIONS_A}/opencv2\"\n  DEST_BINARY=\"${OPENCV_FRAMEWORK}/opencv2_real\"\n  \n  if [ ! -f \"$REAL_BINARY\" ]; then\n    echo \"ERROR: No binary found in Versions/A!\"\n    ls -la \"${VERSIONS_A}/\"\n    exit 1\n  fi\n  \n  # Copy the real binary to a temp name (avoids identical file error)\n  cp -f \"$REAL_BINARY\" \"$DEST_BINARY\"\n  chmod +x \"$DEST_BINARY\"\n  \n  # Rescue Info.plist from Resources before removing Versions\n  if [ -f \"${VERSIONS_A}/Resources/Info.plist\" ]; then\n    cp -f \"${VERSIONS_A}/Resources/Info.plist\" \"${OPENCV_FRAMEWORK}/Info.plist\"\n    echo \"Copied Info.plist from Versions/A/Resources/\"\n  fi\n  \n  # Remove the symlink at root\n  rm -f \"${OPENCV_FRAMEWORK}/opencv2\"\n  \n  # Remove Versions directory\n  rm -rf \"${OPENCV_FRAMEWORK}/Versions\"\n  \n  # Remove any remaining symlinks\n  find \"${OPENCV_FRAMEWORK}\" -maxdepth 1 -type l -delete\n  \n  # Move real binary into place\n  mv \"$DEST_BINARY\" \"${OPENCV_FRAMEWORK}/opencv2\"\nfi\n\n# Clean unsealed contents\nrm -rf \"${OPENCV_FRAMEWORK}/Headers\"\nrm -rf \"${OPENCV_FRAMEWORK}/PrivateHeaders\"\nrm -rf \"${OPENCV_FRAMEWORK}/Modules\"\nrm -f \"${OPENCV_FRAMEWORK}/opencv2.podspec\"\nrm -f \"${OPENCV_FRAMEWORK}/LICENSE\"\nrm -f \"${OPENCV_FRAMEWORK}/README.md\"\nfind \"${OPENCV_FRAMEWORK}\" -maxdepth 1 -name \"*.h\" -delete\n\n# Fix minimum OS version in opencv2 Info.plist\nOPENCV_PLIST=\"${OPENCV_FRAMEWORK}/Info.plist\"\nif [ -f \"$OPENCV_PLIST\" ]; then\n  CURRENT_MIN=$(/usr/libexec/PlistBuddy -c \"Print :MinimumOSVersion\" \"$OPENCV_PLIST\" 2>/dev/null || echo \"none\")\n  echo \"opencv2 MinimumOSVersion: $CURRENT_MIN\"\n  /usr/libexec/PlistBuddy -c \"Set :MinimumOSVersion 15.1\" \"$OPENCV_PLIST\" 2>/dev/null || \\\n  /usr/libexec/PlistBuddy -c \"Add :MinimumOSVersion string 15.1\" \"$OPENCV_PLIST\"\n  echo \"Set MinimumOSVersion to 15.1\"\nfi\n\necho \"Contents after flattening:\"\nls -la \"$OPENCV_FRAMEWORK\"\n\n# Verify binary exists\nif [ ! -f \"${OPENCV_FRAMEWORK}/opencv2\" ]; then\n  echo \"ERROR: opencv2 binary missing!\"\n  exit 1\nfi\n\n# Strip simulator slices\nif lipo -info \"${OPENCV_FRAMEWORK}/opencv2\" 2>/dev/null | grep -q \"x86_64\"; then\n  echo \"Stripping x86_64...\"\n  lipo -remove x86_64 \"${OPENCV_FRAMEWORK}/opencv2\" -output \"${OPENCV_FRAMEWORK}/opencv2\" || true\nfi\n\n# Re-sign\ncodesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY}\" \\\n  --timestamp=none \\\n  \"${OPENCV_FRAMEWORK}\"\n\necho \"opencv2.framework done\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -317,8 +325,11 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
+				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 9;
-				DEVELOPMENT_TEAM = CM52HNMXXW;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = CM52HNMXXW;
 				ENABLE_BITCODE = NO;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -340,7 +351,8 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.sera.dev.capture360.example;
 				PRODUCT_NAME = Capture360Example;
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "360 Capture Example Prov Profile";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = "$(PROJECT_DIR)/Capture360Example/Capture360Example-Bridging-Header.h";
@@ -358,10 +370,11 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
+				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 9;
-				DEVELOPMENT_TEAM = CM52HNMXXW;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = CM52HNMXXW;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)",
@@ -383,7 +396,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = org.sera.dev.capture360.example;
 				PRODUCT_NAME = Capture360Example;
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "360 Capture Example Prov Profile";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = "$(PROJECT_DIR)/Capture360Example/Capture360Example-Bridging-Header.h";
@@ -476,7 +489,7 @@
 					"-DFOLLY_CFG_NO_COROUTINES=1",
 					"-DFOLLY_HAVE_CLOCK_GETTIME=1",
 				);
-				REACT_NATIVE_PATH = "${PODS_ROOT}/../../../node_modules/react-native";
+				REACT_NATIVE_PATH = "${PODS_ROOT}/../../node_modules/react-native";
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
 				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
@@ -559,7 +572,7 @@
 					"-DFOLLY_CFG_NO_COROUTINES=1",
 					"-DFOLLY_HAVE_CLOCK_GETTIME=1",
 				);
-				REACT_NATIVE_PATH = "${PODS_ROOT}/../../../node_modules/react-native";
+				REACT_NATIVE_PATH = "${PODS_ROOT}/../../node_modules/react-native";
 				SDKROOT = iphoneos;
 				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				USE_HERMES = true;

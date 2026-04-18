@@ -62,3 +62,15 @@ export function exportCaptureZip(
     filename ?? '',
   );
 }
+
+/**
+ * shareFile — presents the native iOS share sheet for a file.
+ * Works with any file path (.zip, .jpg, etc.) — lets users share via
+ * AirDrop, Messages, Mail, Files, etc.
+ *
+ * @param filePath  Path to the file to share
+ * @returns Promise resolving to true if shared, false if cancelled
+ */
+export function shareFile(filePath: string): Promise<boolean> {
+  return NativePhotosphere.shareFile(filePath);
+}

@@ -1,11 +1,14 @@
 package com.capture360.turbomodule
 
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.net.Uri
 import android.util.Log
+import androidx.core.content.FileProvider
 import androidx.exifinterface.media.ExifInterface
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.BaseJavaModule
@@ -21,9 +24,14 @@ import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import kotlin.math.*
 
 private const val TAG = "PhotosphereModule"
@@ -831,6 +839,138 @@ class PhotosphereModule(private val reactContext: ReactApplicationContext) :
             promise.resolve(base64)
         } catch (e: Exception) {
             promise.reject("READ_ERROR", "Could not read file: ${e.message}", e)
+        }
+    }
+
+    // =====================================================================
+    // exportCaptureZip — bundles the stitched panorama + all individual
+    // frames into a .zip file saved to the app's cache directory.
+    // Returns the path to the created zip.
+    // =====================================================================
+
+    @ReactMethod
+    fun exportCaptureZip(
+        stitchedPath: String?,
+        framePaths: ReadableArray?,
+        filename: String?,
+        promise: Promise,
+    ) {
+        Thread {
+            try {
+                val baseName = if (!filename.isNullOrEmpty()) {
+                    filename
+                } else {
+                    "capture_${System.currentTimeMillis() / 1000}"
+                }
+
+                val cacheDir = reactContext.cacheDir
+                val zipFile = File(cacheDir, "$baseName.zip")
+
+                // Remove old zip if it exists
+                if (zipFile.exists()) zipFile.delete()
+
+                ZipOutputStream(BufferedOutputStream(FileOutputStream(zipFile))).use { zos ->
+                    // 1. Add stitched panorama
+                    val stitched = normalizePath(stitchedPath)
+                    if (stitched != null) {
+                        val srcFile = File(stitched)
+                        if (srcFile.exists()) {
+                            addFileToZip(zos, srcFile, "panorama.jpg")
+                        }
+                    }
+
+                    // 2. Add individual frames
+                    if (framePaths != null) {
+                        for (i in 0 until framePaths.size()) {
+                            val frameSrc = normalizePath(framePaths.getString(i))
+                                ?: continue
+                            val srcFile = File(frameSrc)
+                            if (!srcFile.exists()) continue
+
+                            val ext = srcFile.extension.ifEmpty { "jpg" }
+                            val entryName = "frames/frame_%03d.%s".format(i, ext)
+                            addFileToZip(zos, srcFile, entryName)
+                        }
+                    }
+                }
+
+                Log.i(TAG, "[Zip] Exported → ${zipFile.absolutePath}")
+                promise.resolve(zipFile.absolutePath)
+            } catch (e: Exception) {
+                Log.e(TAG, "exportCaptureZip exception", e)
+                promise.reject("ZIP_ERROR", "Zip creation failed: ${e.message}", e)
+            }
+        }.start()
+    }
+
+    private fun addFileToZip(zos: ZipOutputStream, file: File, entryName: String) {
+        val entry = ZipEntry(entryName)
+        zos.putNextEntry(entry)
+        BufferedInputStream(FileInputStream(file)).use { bis ->
+            val buffer = ByteArray(8192)
+            var len: Int
+            while (bis.read(buffer).also { len = it } != -1) {
+                zos.write(buffer, 0, len)
+            }
+        }
+        zos.closeEntry()
+    }
+
+    private fun normalizePath(path: String?): String? {
+        if (path.isNullOrEmpty()) return null
+        return if (path.startsWith("file://")) {
+            Uri.parse(path).path
+        } else {
+            path
+        }
+    }
+
+    // =====================================================================
+    // shareFile — presents the Android share sheet (Intent.ACTION_SEND)
+    // for a given file path. Works with .zip, .jpg, etc.
+    // =====================================================================
+
+    @ReactMethod
+    fun shareFile(filePath: String?, promise: Promise) {
+        try {
+            val posixPath = normalizePath(filePath)
+            if (posixPath.isNullOrEmpty()) {
+                promise.reject("SHARE_ERROR", "File path is empty", null)
+                return
+            }
+
+            val file = File(posixPath)
+            if (!file.exists()) {
+                promise.reject("SHARE_ERROR", "File not found: $posixPath", null)
+                return
+            }
+
+            val authority = "${reactContext.packageName}.capture360.fileprovider"
+            val contentUri: Uri = FileProvider.getUriForFile(reactContext, authority, file)
+
+            val mimeType = when (file.extension.lowercase()) {
+                "zip" -> "application/zip"
+                "jpg", "jpeg" -> "image/jpeg"
+                "png" -> "image/png"
+                else -> "application/octet-stream"
+            }
+
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = mimeType
+                putExtra(Intent.EXTRA_STREAM, contentUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+
+            val chooser = Intent.createChooser(shareIntent, null).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+
+            reactContext.startActivity(chooser)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "shareFile exception", e)
+            promise.reject("SHARE_ERROR", "Share failed: ${e.message}", e)
         }
     }
 }

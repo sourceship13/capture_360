@@ -12,7 +12,7 @@ class AppDelegate: RCTAppDelegate {
     
     let rootView = RCTRootView(
       bundleURL: sourceURL(for: nil)!,
-      moduleName: "BisetkaPhotosphere",
+      moduleName: "Capture360Example",
       initialProperties: nil,
       launchOptions: launchOptions
     )

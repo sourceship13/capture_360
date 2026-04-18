@@ -1,9 +1,7 @@
 module.exports = {
   dependency: {
     platforms: {
-      ios: {
-        podspecPath: './capture360.podspec',
-      },
+      ios: {},
       android: {
         sourceDir: './android',
         packageImportPath:
