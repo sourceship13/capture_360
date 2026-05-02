@@ -39,7 +39,7 @@ export function useAttitude(active: boolean = true): Attitude {
   }, []);
 
   useEffect(() => {
-    if (!active || !NativeDeviceInfo) {
+    if (!active || !NativeDeviceInfo || typeof NativeDeviceInfo.startAttitudeUpdates !== 'function') {
       return;
     }
 
