@@ -6,7 +6,7 @@
  * it into the WebView as a data URL.
  */
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {View, StyleSheet, ActivityIndicator, Text, Image} from 'react-native';
+import {View, StyleSheet, ActivityIndicator, Text, Image, Platform} from 'react-native';
 import {WebView} from 'react-native-webview';
 import type {WebViewMessageEvent} from 'react-native-webview';
 import {readFileBase64} from '../modules/NativePhotosphere';
@@ -39,6 +39,7 @@ const VIEWER_HTML = `<!DOCTYPE html>
   var statusEl=document.getElementById('status');
   var yaw=0,pitch=0,fov=75;
   var txYaw=0,txPitch=0,txX=0,txY=0,lastPinch=0;
+  var panXDir=1; // set to -1 on Android by injected JS after load
   var tex=null,prog=null,texReady=false;
   var touchOffsetYaw=0,touchOffsetPitch=0;
   var isTouching=false;
@@ -166,7 +167,7 @@ const VIEWER_HTML = `<!DOCTYPE html>
   canvas.addEventListener('touchmove',function(e){
     e.preventDefault();
     if(e.touches.length===1){
-      touchOffsetYaw=(e.touches[0].clientX-txX)*.2+txYaw;
+      touchOffsetYaw=(e.touches[0].clientX-txX)*panXDir*.2+txYaw;
       touchOffsetPitch=(txY-e.touches[0].clientY)*.2+txPitch;
       touchOffsetPitch=Math.max(-85,Math.min(85,touchOffsetPitch));
       // Also update non-gyro yaw/pitch for when gyro is off
@@ -270,6 +271,8 @@ export default function SphereViewer({imagePath, placeholderSource, attitude, gy
         if (window._setVShift) {
           window._setVShift(${heightOffset});
         }
+        // Reverse horizontal pan direction on Android
+        panXDir = ${Platform.OS === 'android' ? -1 : 1};
       } catch(e) {}
       true;
     `);
