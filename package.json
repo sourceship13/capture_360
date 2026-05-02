@@ -1,6 +1,6 @@
 {
   "name": "@sourceship13/react-native-capture360",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "React Native panorama capture and equirectangular stitching with OpenCV",
   "main": "lib/commonjs/index.js",
   "module": "lib/module/index.js",
@@ -44,6 +44,7 @@
     "react-native.config.js"
   ],
   "scripts": {
+    "postinstall": "bash scripts/download-opencv-ios.sh",
     "setup:ios": "bash scripts/download-opencv-ios.sh",
     "lint": "eslint src/",
     "prepare": "bob build",
