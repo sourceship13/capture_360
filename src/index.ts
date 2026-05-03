@@ -24,6 +24,7 @@ export type {
 
 export {default as PanoramaViewer} from './components/PanoramaViewer';
 export {default as SphereViewer} from './components/SphereViewer';
+export type {SphereViewerHandle} from './components/SphereViewer';
 export {default as SphericalGuide} from './components/SphericalGuide';
 export {SPHERE_POSITIONS, NUM_SPHERE_SHOTS} from './components/SphericalGuide';
 export type {CapturePosition} from './components/SphericalGuide';

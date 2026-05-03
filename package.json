@@ -1,6 +1,6 @@
 {
   "name": "@sourceship13/react-native-capture360",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "React Native panorama capture and equirectangular stitching with OpenCV",
   "main": "lib/commonjs/index.js",
   "module": "lib/module/index.js",

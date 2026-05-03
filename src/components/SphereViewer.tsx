@@ -5,12 +5,11 @@
  * Reads the panorama via the native readFileBase64 module, then injects
  * it into the WebView as a data URL.
  */
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useImperativeHandle, useRef, useState} from 'react';
 import {View, StyleSheet, ActivityIndicator, Text, Image, Platform} from 'react-native';
 import {WebView} from 'react-native-webview';
 import type {WebViewMessageEvent} from 'react-native-webview';
 import {readFileBase64} from '../modules/NativePhotosphere';
-import type {Attitude} from '../hooks/useAttitude';
 
 // ── Raw WebGL equirectangular viewer ──────────────────────────────────────────
 
@@ -108,7 +107,7 @@ const VIEWER_HTML = `<!DOCTYPE html>
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-    log('WebGL init ok');
+    log('WebGL init ok canvas='+canvas.width+'x'+canvas.height);
     render();
   }
 
@@ -231,6 +230,19 @@ const VIEWER_HTML = `<!DOCTYPE html>
   document.addEventListener('message',handleMsg);
   window.addEventListener('message',handleMsg);
 
+  // On Android WebView the page script can run before the native layout assigns
+  // real dimensions, so window.innerWidth/Height may be 0 at DOMContentLoaded.
+  // Listen for resize (fires when the WebView gets its real size) and
+  // re-apply the canvas dimensions + WebGL viewport.
+  window.addEventListener('resize', function() {
+    if (!canvas || !gl) return;
+    var dpr = window.devicePixelRatio || 1;
+    canvas.width  = window.innerWidth  * dpr;
+    canvas.height = window.innerHeight * dpr;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    log('resize canvas='+canvas.width+'x'+canvas.height);
+  });
+
   initGL();
 })();
 </script>
@@ -244,10 +256,6 @@ type Props = {
   imagePath?: string;
   /** A require()'d image to use as placeholder when imagePath is not provided */
   placeholderSource?: number;
-  /** Device attitude (yaw/pitch/roll) from motion sensors */
-  attitude?: Attitude;
-  /** Enable gyroscope-driven panning (requires attitude to be provided) */
-  gyroEnabled?: boolean;
   /** Shift the virtual eye level up (positive) or down (negative) within the sphere.
    *  Range ~0.0–0.15; 0.08 ≈ standing height in a typical room panorama. */
   heightOffset?: number;
@@ -256,8 +264,14 @@ type Props = {
   initialPitch?: number;
 };
 
-export default function SphereViewer({imagePath, placeholderSource, attitude, gyroEnabled = false, heightOffset = 0, initialYaw = 180, initialPitch = 0}: Props) {
-  console.log('[SphereViewer] Mounting with initial:', {initialYaw, initialPitch, gyroEnabled, heightOffset});
+/** Imperative handle for SphereViewer — call updateAttitude() from the parent
+ *  to inject gyro data without re-rendering the component. */
+export interface SphereViewerHandle {
+  updateAttitude: (yaw: number, pitch: number) => void;
+}
+
+const SphereViewerInner = React.forwardRef<SphereViewerHandle, Props>(function SphereViewer({imagePath, placeholderSource, heightOffset = 0, initialYaw = 180, initialPitch = 0}: Props, ref) {
+  console.log('[SphereViewer] Mounting with initial:', {initialYaw, initialPitch, heightOffset});
   const webRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -365,22 +379,19 @@ export default function SphereViewer({imagePath, placeholderSource, attitude, gy
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // intentionally empty — run once per mount
 
-  // Device motion tracking — throttled to ~15fps to reduce bridge overhead and heat
-  const lastGyroRef = useRef(0);
-  useEffect(() => {
-    if (!gyroEnabled || !attitude || !webRef.current) return;
-    
-    const now = Date.now();
-    if (now - lastGyroRef.current < 33) return; // ~30fps
-    lastGyroRef.current = now;
-    
-    webRef.current.injectJavaScript(`
-      if (window._updateAttitude) {
-        window._updateAttitude(${attitude.yaw}, ${attitude.pitch});
-      }
-      true;
-    `);
-  }, [gyroEnabled, attitude]);
+  // Gyro injection is handled externally via the updateAttitude imperative handle.
+  // This avoids re-rendering SphereViewer on every gyro frame (which would starve
+  // useEffect with [] and prevent the initial image from loading).
+  useImperativeHandle(ref, () => ({
+    updateAttitude: (yaw: number, pitch: number) => {
+      webRef.current?.injectJavaScript(`
+        if (window._updateAttitude) {
+          window._updateAttitude(${yaw}, ${pitch});
+        }
+        true;
+      `);
+    },
+  }), []);
 
   return (
     <View style={styles.root}>
@@ -416,7 +427,12 @@ export default function SphereViewer({imagePath, placeholderSource, attitude, gy
       )}
     </View>
   );
-}
+});
+
+/** Memoized — only re-renders when imagePath/placeholderSource/initialPitch/initialYaw
+ *  change, NOT on attitude/gyro updates (those go via the updateAttitude handle). */
+const SphereViewer = React.memo(SphereViewerInner);
+export default SphereViewer;
 
 const styles = StyleSheet.create({
   root: {flex: 1, backgroundColor: '#000'},
