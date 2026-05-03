@@ -831,7 +831,13 @@ class PhotosphereModule(private val reactContext: ReactApplicationContext) :
             } else {
                 filePath ?: ""
             }
-            val bytes = File(path).readBytes()
+            val bytes: ByteArray = if (path.startsWith("/android_asset/")) {
+                // Asset is bundled inside the APK — must use AssetManager, not File I/O
+                val assetPath = path.removePrefix("/android_asset/")
+                reactContext.assets.open(assetPath).use { it.readBytes() }
+            } else {
+                File(path).readBytes()
+            }
             val base64 = android.util.Base64.encodeToString(
                 bytes,
                 android.util.Base64.NO_WRAP,

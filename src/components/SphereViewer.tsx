@@ -114,7 +114,12 @@ const VIEWER_HTML = `<!DOCTYPE html>
 
   function loadImg(src){
     var img=new Image();
-    img.crossOrigin='anonymous';
+    // crossOrigin='anonymous' is needed for WebGL texture use on http(s) sources.
+    // For file:// and data: sources it must be omitted — file:// doesn't support
+    // CORS and would block the load; data: is always same-origin.
+    if(src.indexOf('http')===0){
+      img.crossOrigin='anonymous';
+    }
     img.onload=function(){
       gl.bindTexture(gl.TEXTURE_2D,tex);
       gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,img);
@@ -258,28 +263,45 @@ export default function SphereViewer({imagePath, placeholderSource, attitude, gy
   const [error, setError] = useState<string | null>(null);
   const sentRef = useRef(false);
 
+  // Reset the sent guard on unmount so that remounts (React Strict Mode double-mount,
+  // navigation away/back) can reload the image into the fresh WebView.
+  useEffect(() => {
+    return () => {
+      sentRef.current = false;
+    };
+  }, []);
+
   const sendImage = useCallback(async () => {
+    console.log('[SphereViewer] sendImage called, sentRef:', sentRef.current);
     if (sentRef.current) return;
     sentRef.current = true;
 
-    // Set initial camera position BEFORE loading image
-    webRef.current?.injectJavaScript(`
-      try {
-        if (window._setInitialView) {
-          window._setInitialView(${initialYaw}, ${initialPitch});
-        }
-        if (window._setVShift) {
-          window._setVShift(${heightOffset});
-        }
-        // Reverse horizontal pan direction on Android
-        panXDir = ${Platform.OS === 'android' ? -1 : 1};
-      } catch(e) {}
-      true;
-    `);
-
     try {
-      if (imagePath) {
-        // Load from file system
+      // Set initial camera position BEFORE loading image
+      webRef.current?.injectJavaScript(`
+        try {
+          if (window._setInitialView) {
+            window._setInitialView(${initialYaw}, ${initialPitch});
+          }
+          if (window._setVShift) {
+            window._setVShift(${heightOffset});
+          }
+          // Reverse horizontal pan direction on Android
+          panXDir = ${Platform.OS === 'android' ? -1 : 1};
+        } catch(e) {}
+        true;
+      `);
+      if (imagePath && Platform.OS === 'android' && imagePath.startsWith('file:///android_asset/')) {
+        // Android asset: pass URL directly — avoids base64 injectJavaScript size limit
+        // (Android evaluateJavascript silently truncates payloads > ~1 MB).
+        // allowUniversalAccessFromFileURLs on the WebView permits file:// texture use.
+        console.log('[SphereViewer] android asset direct:', imagePath);
+        webRef.current?.injectJavaScript(`
+          try { window._loadFile(${JSON.stringify(imagePath)}); } catch(e) {}
+          true;
+        `);
+      } else if (imagePath) {
+        // Load from file system via native base64 (non-asset paths, iOS assets)
         console.log('[SphereViewer] reading image:', imagePath);
         const base64 = await readFileBase64(imagePath);
         console.log('[SphereViewer] base64 length:', base64.length);
@@ -288,21 +310,32 @@ export default function SphereViewer({imagePath, placeholderSource, attitude, gy
           true;
         `);
       } else if (placeholderSource) {
-        // Load from RN bundled asset via fetch → blob → dataURL
         const resolved = Image.resolveAssetSource(placeholderSource);
-        console.log('[SphereViewer] loading placeholder:', resolved?.uri?.substring(0, 80));
-        const response = await fetch(resolved.uri);
-        const blob = await response.blob();
-        const dataUrl: string = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
-        webRef.current?.injectJavaScript(`
-          try { window._loadFile(${JSON.stringify(dataUrl)}); } catch(e) {}
-          true;
-        `);
+        const uri = resolved?.uri;
+        console.log('[SphereViewer] loading placeholder:', uri?.substring(0, 80));
+        if (Platform.OS === 'android' && uri) {
+          // Android: pass URL directly to WebView to avoid injectJavaScript size limit.
+          // The WebView baseUrl is set to the Metro host so HTTP assets are same-origin
+          // for WebGL; for file:// assets, allowUniversalAccessFromFileURLs covers it.
+          webRef.current?.injectJavaScript(`
+            try { window._loadFile(${JSON.stringify(uri)}); } catch(e) {}
+            true;
+          `);
+        } else {
+          // iOS: fetch → blob → FileReader → dataURL → inject
+          const response = await fetch(uri!);
+          const blob = await response.blob();
+          const dataUrl: string = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          webRef.current?.injectJavaScript(`
+            try { window._loadFile(${JSON.stringify(dataUrl)}); } catch(e) {}
+            true;
+          `);
+        }
       } else {
         setError('No image source provided');
       }
@@ -322,6 +355,15 @@ export default function SphereViewer({imagePath, placeholderSource, attitude, gy
       }
     } catch {}
   }, []);
+
+  // Fallback: if onLoadEnd never fires (known intermittent issue with React Native WebView
+  // + New Architecture on Android), trigger sendImage after 800 ms. The sentRef guard
+  // ensures the image is only loaded once even if both paths fire.
+  useEffect(() => {
+    const id = setTimeout(sendImage, 800);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally empty — run once per mount
 
   // Device motion tracking — throttled to ~15fps to reduce bridge overhead and heat
   const lastGyroRef = useRef(0);
@@ -344,7 +386,9 @@ export default function SphereViewer({imagePath, placeholderSource, attitude, gy
     <View style={styles.root}>
       <WebView
         ref={webRef}
-        source={{html: VIEWER_HTML}}
+        source={Platform.OS === 'android'
+          ? {html: VIEWER_HTML, baseUrl: 'http://localhost:8081'}
+          : {html: VIEWER_HTML}}
         style={styles.webview}
         originWhitelist={['*']}
         javaScriptEnabled
@@ -353,7 +397,7 @@ export default function SphereViewer({imagePath, placeholderSource, attitude, gy
         allowFileAccessFromFileURLs
         allowUniversalAccessFromFileURLs
         mixedContentMode="always"
-        onLoad={sendImage}
+        onLoadEnd={sendImage}
         onMessage={onMessage}
         scrollEnabled={false}
         bounces={false}
