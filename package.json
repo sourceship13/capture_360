@@ -50,7 +50,10 @@
     "prepare": "bob build",
     "prepack": "bob build",
     "build:android": "cd android && ./gradlew assembleRelease",
-    "build:ios": "cd ios && xcodebuild -scheme Capture360 -configuration Release"
+    "build:ios": "cd ios && xcodebuild -scheme Capture360 -configuration Release",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
   },
   "peerDependencies": {
     "react": ">=18.0.0",

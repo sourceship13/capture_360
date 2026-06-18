@@ -53,3 +53,8 @@ app.json
 
 # Auth tokens
 .npmrc
+
+# Environment variables
+.env
+.env.local
+.env.*.local
