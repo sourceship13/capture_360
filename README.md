@@ -92,7 +92,7 @@ export function PanoramaViewer() {
   );
 }
 ```
-
+<!-- 
 #### Record 360° Video
 
 ```tsx
@@ -111,7 +111,7 @@ export function VideoCapture() {
     </>
   );
 }
-```
+``` -->
 
 ## 📚 API Reference
 
