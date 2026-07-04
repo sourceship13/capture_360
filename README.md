@@ -40,13 +40,36 @@
 See [INSTALLATION.md](INSTALLATION.md) for detailed platform-specific setup.
 
 ```bash
+# npm
 npm install @sourceship13/react-native-capture360
-# or
-yarn add @sourceship13/react-native-capture360
 
-# For iOS, also run:
+# yarn
+yarn add @sourceship13/react-native-capture360
+```
+
+Install peer dependencies:
+
+```bash
+# npm
+npm install react-native-webview react-native-vision-camera
+
+# yarn
+yarn add react-native-webview react-native-vision-camera
+```
+
+**iOS** — download the OpenCV framework and install pods:
+
+```bash
+# Download OpenCV (~200MB, required for iOS builds)
+npm run setup:ios
+# or with yarn:
+yarn setup:ios
+
+# Then install pods
 cd ios && pod install && cd ..
 ```
+
+> `setup:ios` downloads `opencv2.framework` into `ios/`. Skip this step if targeting Android only. See [INSTALLATION.md](INSTALLATION.md) for manual setup and troubleshooting.
 
 ### Basic Usage
 
@@ -202,7 +225,7 @@ const {
 
 ### iOS
 
-The `postinstall` script automatically downloads OpenCV. For manual setup, see [INSTALLATION.md](INSTALLATION.md#ios-setup).
+Run `npm run setup:ios` to download the OpenCV framework (~200MB). This is required before building on iOS. For manual setup, see [INSTALLATION.md](INSTALLATION.md#ios-setup).
 
 ### Android
 

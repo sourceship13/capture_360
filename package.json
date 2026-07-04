@@ -12,10 +12,10 @@
     "type": "git",
     "url": "https://github.com/sourceship13/capture360.git"
   },
-  "license": "UNLICENSED",
+  "license": "MIT",
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com",
-    "access": "restricted"
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
   },
   "files": [
     "src/",
@@ -44,7 +44,6 @@
     "react-native.config.js"
   ],
   "scripts": {
-    "postinstall": "bash scripts/download-opencv-ios.sh",
     "setup:ios": "bash scripts/download-opencv-ios.sh",
     "lint": "eslint src/",
     "prepare": "bob build",

@@ -22,27 +22,27 @@ Ensure you have:
 - iOS: Xcode 14+ (for iOS 12+)
 - Android: Android SDK 21+ (API level 21+)
 
-### Step 1: Install via npm
+### Step 1: Install the Package
 
 ```bash
+# npm
 npm install @sourceship13/react-native-capture360
-```
 
-Or with yarn:
-
-```bash
+# yarn
 yarn add @sourceship13/react-native-capture360
 ```
 
 ### Step 2: Link Peer Dependencies
 
-Ensure you also have these installed:
-
 ```bash
+# npm
 npm install react-native-webview react-native-vision-camera
+
+# yarn
+yarn add react-native-webview react-native-vision-camera
 ```
 
-**Note:** If using Expo, some native features may require a bare React Native setup.
+> Yarn pulls from the npm registry automatically — no separate yarn publishing required.
 
 ---
 
@@ -57,16 +57,26 @@ Capture360 requires:
 
 ### Automatic Setup (Recommended)
 
-The package includes an automated setup script:
+Run the setup script to download the OpenCV framework:
+
+```bash
+# npm
+npm run setup:ios
+
+# yarn
+yarn setup:ios
+```
+
+This script:
+- Downloads OpenCV 4.8.1 from the official GitHub release (~200MB zip)
+- Extracts `opencv2.framework` into `ios/`
+- Is safe to re-run (replaces any existing framework)
+
+Then install CocoaPods:
 
 ```bash
 cd ios && pod install && cd ..
 ```
-
-This runs the `postinstall` script which:
-- Downloads OpenCV (if not already present)
-- Extracts it to `ios/opencv2.framework`
-- Registers native modules with React Native
 
 ### Step-by-Step Manual Setup
 
@@ -88,7 +98,11 @@ This installs:
 #### 2. Download OpenCV
 
 ```bash
-bash scripts/download-opencv-ios.sh
+# npm
+npm run setup:ios
+
+# yarn
+yarn setup:ios
 ```
 
 **What this does:**
