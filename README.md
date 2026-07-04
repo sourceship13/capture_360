@@ -6,6 +6,12 @@
 [![npm downloads](https://img.shields.io/npm/dm/@sourceship13/react-native-capture360.svg?style=flat-square)](https://www.npmjs.com/package/@sourceship13/react-native-capture360)
 [![license](https://img.shields.io/badge/license-MIT-green.svg?style=flat-square)](LICENSE)
 
+```bash
+npm install @sourceship13/react-native-capture360
+# or
+yarn add @sourceship13/react-native-capture360
+```
+
 ## ✨ Features
 
 - **📱 Native Performance** - Leverages OpenCV (iOS) and native Android APIs for high-performance image stitching
