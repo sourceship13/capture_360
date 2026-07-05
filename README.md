@@ -15,7 +15,7 @@ yarn add @sourceship13/react-native-capture360
 ## ✨ Features
 
 - **📱 Native Performance** - Leverages OpenCV (iOS) and native Android APIs for high-performance image stitching
-- **🎥 Dual Capture Modes** - Panorama photo captures and 360° video recording
+- **🎥 Dual Capture Modes** - Panorama photo captures and 360° video recording - coming soon!
 - **🧭 Gyroscope Support** - Intelligent gyro-based orientation tracking for seamless capture
 - **⚙️ Equirectangular Stitching** - Automatic conversion to standard 360° projection
 - **🎨 Interactive Sphere Viewer** - Built-in viewer with gyro-based pan navigation
