@@ -7,10 +7,10 @@
   "types": "lib/typescript/index.d.ts",
   "react-native": "src/index.ts",
   "source": "src",
-  "homepage": "https://github.com/sourceship13/capture360#readme",
+  "homepage": "https://github.com/sourceship13/capture_360#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/sourceship13/capture360.git"
+    "url": "https://github.com/sourceship13/capture_360.git"
   },
   "license": "MIT",
   "publishConfig": {
